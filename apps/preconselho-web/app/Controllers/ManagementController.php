@@ -26,6 +26,11 @@ final class ManagementController
     public function reopen(Request $request, array $params): Response
     { Csrf::verify($request->body['_csrf']??null);(new ReportService($this->repository,$this->api))->reopen((int)$params['id'],(string)($request->body['justificativa']??''),$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');return Response::redirect('/relatorios/'.$params['id']); }
 
+    public function deleteDiscipline(Request $request, array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$statement=$this->repository->db->prepare('SELECT d.*,COUNT(v.id) vinculos FROM disciplinas d LEFT JOIN vinculos_professor_turma_disciplina v ON v.disciplina_id=d.id WHERE d.id=:id GROUP BY d.id');$statement->execute([':id'=>$id]);$discipline=$statement->fetch()?:throw new HttpException(404,'DISCIPLINE_NOT_FOUND','Disciplina não encontrada.');if((int)$discipline['vinculos']>0)throw new HttpException(422,'DISCIPLINE_IN_USE','Esta disciplina está sendo usada e não pode ser excluída.');$this->repository->db->beginTransaction();try{$this->repository->db->prepare('DELETE FROM disciplinas WHERE id=:id')->execute([':id'=>$id]);$this->repository->audit($_SESSION['user']['id'],'EXCLUIR','disciplinas',$id,['nome'=>$discipline['nome']],null,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}$_SESSION['flash']='Disciplina excluída com sucesso.';return Response::redirect('/admin#disciplinas');
+    }
+
     public function audit(Request $request): Response
     {
         $page=max(1,(int)($request->query['pagina']??1));$limit=25;$offset=($page-1)*$limit;
