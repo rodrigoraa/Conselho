@@ -3,7 +3,7 @@ namespace PreConselho\Controllers;
 
 use PreConselho\Integration\SecretariaApiClient;
 use PreConselho\Repositories\AppRepository;
-use PreConselho\Services\ReportService;
+use PreConselho\Services\{AdminDeletionService,ReportService};
 use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
 use Shared\Http\{Request,Response};
@@ -28,7 +28,22 @@ final class ManagementController
 
     public function deleteDiscipline(Request $request, array $params): Response
     {
-        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$statement=$this->repository->db->prepare('SELECT d.*,COUNT(v.id) vinculos FROM disciplinas d LEFT JOIN vinculos_professor_turma_disciplina v ON v.disciplina_id=d.id WHERE d.id=:id GROUP BY d.id');$statement->execute([':id'=>$id]);$discipline=$statement->fetch()?:throw new HttpException(404,'DISCIPLINE_NOT_FOUND','Disciplina não encontrada.');if((int)$discipline['vinculos']>0)throw new HttpException(422,'DISCIPLINE_IN_USE','Esta disciplina está sendo usada e não pode ser excluída.');$this->repository->db->beginTransaction();try{$this->repository->db->prepare('DELETE FROM disciplinas WHERE id=:id')->execute([':id'=>$id]);$this->repository->audit($_SESSION['user']['id'],'EXCLUIR','disciplinas',$id,['nome'=>$discipline['nome']],null,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}$_SESSION['flash']='Disciplina excluída com sucesso.';return Response::redirect('/admin#disciplinas');
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteDiscipline((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Disciplina e dados relacionados excluídos.';return Response::redirect('/admin#disciplinas');
+    }
+
+    public function deleteReport(Request $request, array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteReport((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Relatório excluído.';return Response::redirect('/');
+    }
+
+    public function deletePeriod(Request $request, array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deletePeriod((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Período e relatórios relacionados excluídos.';return Response::redirect('/admin#periodos');
+    }
+
+    public function deleteBinding(Request $request, array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteBinding((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Vínculo e relatórios relacionados excluídos.';return Response::redirect('/admin#vinculos-lista');
     }
 
     public function editUser(Request $request, array $params): Response

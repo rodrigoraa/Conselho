@@ -43,7 +43,7 @@ ob_start();
 ?>
 <section class="page-heading">
     <div><h1><?=e($report['turma_nome_snapshot'])?></h1><p><?=e($pageContext)?></p></div>
-    <div class="heading-actions"><?php if($report['status']!=='DEVOLVIDO'):?><span class="badge status-<?=e(strtolower($report['status']))?>"><?=e($statusLabels[$report['status']]??$report['status'])?></span><?php endif;?><?php if(($_SESSION['user']['perfil']??'')!=='PROFESSOR'):?><button type="button" data-print-page>Imprimir</button><?php endif;?></div>
+    <div class="heading-actions"><?php if($report['status']!=='DEVOLVIDO'):?><span class="badge status-<?=e(strtolower($report['status']))?>"><?=e($statusLabels[$report['status']]??$report['status'])?></span><?php endif;?><?php if(($_SESSION['user']['perfil']??'')!=='PROFESSOR'):?><button type="button" data-print-page>Imprimir</button><?php endif;?><?php if(($_SESSION['user']['perfil']??'')==='ADMIN'):?><form class="inline-form" method="post" action="/admin/relatorios/<?=e($report['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir este relatório e todo o preenchimento? Esta ação não pode ser desfeita.">Excluir</button></form><?php endif;?></div>
 </section>
 
 <?php if($report['status']==='DEVOLVIDO'):?><p class="error" role="alert"><span aria-hidden="true">!</span><span><strong>Ajustes solicitados pela coordenação.</strong><?=$lastReturnReason!==''?' '.e($lastReturnReason):' Consulte o histórico ao final da página.'?></span></p><?php endif;?>
