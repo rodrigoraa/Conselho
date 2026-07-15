@@ -26,6 +26,6 @@ Apache: habilite `mod_rewrite`, permita `AllowOverride All` no `public/` e use `
 
 ## Fluxo
 
-O administrador cadastra usuários, disciplinas e vínculos validados contra a API. Ao abrir um período, um relatório pendente é criado para cada vínculo ativo do mesmo ano. Professores salvam ou enviam; a coordenação devolve com justificativa ou aprova. Aprovação e encerramento bloqueiam edição. IDs externos e snapshots preservam o histórico; a API continua sendo a fonte oficial.
+O administrador cadastra usuários, disciplinas e vínculos validados contra a API. Ao abrir um período, um relatório pendente é criado para cada vínculo ativo. O ano gravado pela secretaria é apenas um dado histórico do cadastro da turma e não restringe a geração dos relatórios. Professores salvam ou enviam; a coordenação devolve com justificativa ou aprova. Aprovação e encerramento bloqueiam edição. IDs externos e snapshots preservam o histórico; a API continua sendo a fonte oficial.
 
 Os endpoints, modelo, regras, segurança e deploy detalhado estão em `docs/`. SQLite usa `foreign_keys`, `busy_timeout` e WAL no banco local. Evite armazenamento em rede e transações longas. Para atualizar: backup, modo de manutenção, `composer install`, migrations e smoke test. Para recuperar: pare escritas, preserve o banco danificado, restaure uma cópia e execute `PRAGMA integrity_check` antes de reabrir.

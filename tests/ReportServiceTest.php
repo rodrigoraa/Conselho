@@ -6,6 +6,7 @@ use PHPUnit\Framework\TestCase;
 use PreConselho\Integration\SecretariaApiClient;
 use PreConselho\Repositories\AppRepository;
 use PreConselho\Services\ReportService;
+use PreConselho\Services\PeriodService;
 use Shared\Exceptions\HttpException;
 
 final class ReportServiceTest extends TestCase
@@ -28,8 +29,14 @@ final class ReportServiceTest extends TestCase
     public function testOpcoesPedagogicasDoAlunoSaoSalvas():void
     {$this->service->save(1,['versao'=>1,'possui_alunos_rav'=>'1','alunos'=>[5=>['selecionado'=>'1','nota'=>'6.5','dificuldades'=>['LEITURA_INTERPRETACAO','OUTROS'],'dificuldades_outros'=>'Organização','intervencoes'=>['ATIVIDADES_REFORCO'],'observacao'=>'Acompanhar']]],2,'PROFESSOR',true,'127.0.0.1','test');$row=$this->db->query('SELECT * FROM relatorio_alunos WHERE aluno_externo_id=5')->fetch();self::assertSame('Leitura e interpretação; Outros: Organização',$row['dificuldades']);self::assertSame('Aplicação de atividades de reforço',$row['intervencoes']);self::assertSame(['LEITURA_INTERPRETACAO','OUTROS'],json_decode($row['dificuldades_json'],true));}
 
+    public function testAutosaveNaoPoluiHistoricoNemAuditoria():void
+    {$this->service->save(1,['versao'=>1,'possui_alunos_rav'=>'0'],2,'PROFESSOR',false,'127.0.0.1','test',true);self::assertSame('RASCUNHO',$this->db->query('SELECT status FROM relatorios_pre_conselho WHERE id=1')->fetchColumn());self::assertSame(0,(int)$this->db->query('SELECT COUNT(*) FROM historico_status_relatorio')->fetchColumn());self::assertSame(0,(int)$this->db->query('SELECT COUNT(*) FROM auditoria')->fetchColumn());}
+
+    public function testPeriodoIgnoraAnoHistoricoDaTurmaAoGerarRelatorio():void
+    {$this->db->exec("UPDATE vinculos_professor_turma_disciplina SET turma_ano_letivo_snapshot=2025;INSERT INTO periodos_pre_conselho(id,nome,ano_letivo,etapa,data_inicio,data_fim,status,criado_por)VALUES(2,'Novo período',2026,'2º','2020-01-01','2099-12-31','RASCUNHO',1)");(new PeriodService(new AppRepository($this->db)))->open(2,1,'127.0.0.1','test');self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM relatorios_pre_conselho WHERE periodo_id=2')->fetchColumn());}
+
     public function testAprovacaoGeraHistoricoEAuditoria():void
-    {$this->db->exec("UPDATE relatorios_pre_conselho SET status='ENVIADO' WHERE id=1");$this->service->review(1,true,'','Parecer',1,'127.0.0.1','test');self::assertSame('APROVADO',$this->db->query('SELECT status FROM relatorios_pre_conselho WHERE id=1')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM historico_status_relatorio')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM auditoria')->fetchColumn());}
+    {$this->db->exec("UPDATE relatorios_pre_conselho SET status='ENVIADO' WHERE id=1");$this->service->review(1,true,'','Parecer','Orientação específica',1,'127.0.0.1','test');self::assertSame('APROVADO',$this->db->query('SELECT status FROM relatorios_pre_conselho WHERE id=1')->fetchColumn());self::assertSame('Orientação específica',$this->db->query('SELECT orientacao_coordenacao FROM relatorios_pre_conselho WHERE id=1')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM historico_status_relatorio')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM auditoria')->fetchColumn());}
 
     public function testReaberturaExigeJustificativa():void
     {$this->db->exec("UPDATE relatorios_pre_conselho SET status='APROVADO' WHERE id=1");$this->expectException(HttpException::class);$this->service->reopen(1,'',1,'127.0.0.1','test');}

@@ -11,7 +11,7 @@ final class ReportService
 {
     public function __construct(private readonly AppRepository $repository, private readonly SecretariaApiClient $api) {}
 
-    public function save(int $id, array $data, int $userId, string $role, bool $submit, string $ip, string $userAgent): void
+    public function save(int $id, array $data, int $userId, string $role, bool $submit, string $ip, string $userAgent, bool $silent = false): void
     {
         $report = $this->allowed($id, $userId, $role);
         if (!in_array($report['status'], ['PENDENTE', 'RASCUNHO', 'DEVOLVIDO'], true) || $report['periodo_status'] !== 'ABERTO') {
@@ -51,8 +51,7 @@ final class ReportService
             ]);
             if ($statement->rowCount() !== 1) throw new HttpException(409, 'VERSION_CONFLICT', 'Conflito de atualização.');
             $this->syncStudents($id, $validated);
-            $this->history($id, $report['status'], $newStatus, $userId, null);
-            $this->repository->audit($userId, $submit ? 'ENVIAR' : 'SALVAR_RASCUNHO', 'relatorios_pre_conselho', $id, ['status' => $report['status']], ['status' => $newStatus], $ip, $userAgent);
+            if(!$silent){$this->history($id, $report['status'], $newStatus, $userId, null);$this->repository->audit($userId, $submit ? 'ENVIAR' : 'SALVAR_RASCUNHO', 'relatorios_pre_conselho', $id, ['status' => $report['status']], ['status' => $newStatus], $ip, $userAgent);}
             $db->commit();
         } catch (Throwable $exception) {
             if ($db->inTransaction()) $db->rollBack();
@@ -60,7 +59,7 @@ final class ReportService
         }
     }
 
-    public function review(int $id, bool $approve, string $reason, string $opinion, int $userId, string $ip, string $userAgent): void
+    public function review(int $id, bool $approve, string $reason, string $opinion, string $guidance, int $userId, string $ip, string $userAgent): void
     {
         $report = $this->repository->report($id) ?? throw new HttpException(404, 'REPORT_NOT_FOUND', 'Relatório não encontrado.');
         if ($report['status'] !== 'ENVIADO' || $report['periodo_status'] === 'ENCERRADO') throw new HttpException(422, 'INVALID_STATUS', 'Relatório não está disponível para conferência.');
@@ -69,8 +68,8 @@ final class ReportService
         $db = $this->repository->db;
         $db->beginTransaction();
         try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,parecer_coordenacao=:parecer,aprovado_em=CASE WHEN :status='APROVADO' THEN CURRENT_TIMESTAMP END,aprovado_por=CASE WHEN :status='APROVADO' THEN :usuario END,devolvido_em=CASE WHEN :status='DEVOLVIDO' THEN CURRENT_TIMESTAMP END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND status='ENVIADO'");
-            $statement->execute([':status'=>$newStatus, ':parecer'=>$this->text($opinion, 4000), ':usuario'=>$userId, ':id'=>$id]);
+            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,parecer_coordenacao=:parecer,orientacao_coordenacao=:orientacao,aprovado_em=CASE WHEN :status='APROVADO' THEN CURRENT_TIMESTAMP END,aprovado_por=CASE WHEN :status='APROVADO' THEN :usuario END,devolvido_em=CASE WHEN :status='DEVOLVIDO' THEN CURRENT_TIMESTAMP END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND status='ENVIADO'");
+            $statement->execute([':status'=>$newStatus, ':parecer'=>$this->text($opinion, 4000),':orientacao'=>$this->text($guidance,4000), ':usuario'=>$userId, ':id'=>$id]);
             if ($statement->rowCount() !== 1) throw new HttpException(409, 'VERSION_CONFLICT', 'O relatório foi alterado durante a conferência.');
             $this->history($id, 'ENVIADO', $newStatus, $userId, $approve ? null : $this->text($reason, 2000));
             $this->repository->audit($userId, $newStatus, 'relatorios_pre_conselho', $id, ['status'=>'ENVIADO'], ['status'=>$newStatus], $ip, $userAgent);
@@ -121,6 +120,7 @@ final class ReportService
             if($submit&&($grade===''||$grade===null))throw new HttpException(422,'STUDENT_GRADE_REQUIRED','Informe a nota de todos os alunos selecionados.');
             $difficulty=$this->studentChoices($fields['dificuldades']??[],$fields['dificuldades_outros']??'',$this->difficultyOptions());
             $measures=$this->studentChoices($fields['intervencoes']??[],$fields['intervencoes_outros']??'',$this->measureOptions());
+            if($submit&&((in_array('OUTROS',$difficulty['selected'],true)&&$difficulty['other']==='')||(in_array('OUTROS',$measures['selected'],true)&&$measures['other']==='')))throw new HttpException(422,'STUDENT_OTHER_REQUIRED','Preencha os campos “Outros” selecionados.');
             if($submit&&($difficulty['summary']===''||$measures['summary']===''))throw new HttpException(422,'STUDENT_DATA_REQUIRED','Selecione as dificuldades e as medidas adotadas de todos os alunos indicados.');
             $fields['_difficulty']=$difficulty;$fields['_measures']=$measures;
             $validated[(int)$studentId] = [$student, $fields];
