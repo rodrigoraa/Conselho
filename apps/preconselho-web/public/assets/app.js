@@ -16,7 +16,11 @@ search?.addEventListener('input',filterReports);
 document.querySelectorAll('[data-status-filter]').forEach(button=>button.addEventListener('click',()=>{const selected=button.getAttribute('aria-pressed')==='true';document.querySelectorAll('[data-status-filter]').forEach(item=>item.setAttribute('aria-pressed','false'));statusFilter=selected?'':button.dataset.statusFilter||'';button.setAttribute('aria-pressed',String(!selected));filterReports();document.querySelector('.work-list')?.scrollIntoView({behavior:'smooth',block:'start'})}));
 
 const studentSearch=document.querySelector('#student-search');
-studentSearch?.addEventListener('input',()=>{const term=studentSearch.value.toLocaleLowerCase('pt-BR').trim();document.querySelectorAll('.student-list details').forEach(item=>item.hidden=!!term&&!item.querySelector('summary').textContent.toLocaleLowerCase('pt-BR').includes(term))});
+studentSearch?.addEventListener('input',()=>{const term=studentSearch.value.toLocaleLowerCase('pt-BR').trim();document.querySelectorAll('[data-student-row]').forEach(item=>item.hidden=!!term&&!item.textContent.toLocaleLowerCase('pt-BR').includes(term))});
+
+const syncStudentSheet=()=>{let selected=0;document.querySelectorAll('[data-student-row]').forEach(row=>{const checkbox=row.querySelector('input[type="checkbox"]');if(!checkbox)return;row.classList.toggle('selected',checkbox.checked);row.querySelectorAll('.student-field').forEach(field=>{if(!field.readOnly)field.disabled=!checkbox.checked});if(checkbox.checked)selected++});const output=document.querySelector('#selected-student-count');if(output)output.textContent=String(selected)};
+document.querySelectorAll('[data-student-row] input[type="checkbox"]').forEach(input=>input.addEventListener('change',syncStudentSheet));syncStudentSheet();
+document.querySelectorAll('input[name="possui_alunos_rav"]').forEach(radio=>radio.addEventListener('change',()=>{if(radio.checked&&radio.value==='0'){document.querySelectorAll('[data-student-row] input[type="checkbox"]:checked').forEach(input=>{input.checked=false});syncStudentSheet()}}));
 
 document.querySelectorAll('[data-table-search]').forEach(input=>input.addEventListener('input',()=>{const term=input.value.toLocaleLowerCase('pt-BR').trim();document.querySelectorAll(`${input.dataset.tableSearch} tbody tr`).forEach(row=>row.hidden=!!term&&!row.textContent.toLocaleLowerCase('pt-BR').includes(term))}));
 

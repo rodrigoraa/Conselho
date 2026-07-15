@@ -44,12 +44,14 @@ final class ReportService
         $db = $this->repository->db;
         $db->beginTransaction();
         try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,dificuldades_gerais=:dificuldades,medidas_adotadas=:medidas,observacoes_professor=:observacoes,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
+            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,dificuldades_gerais=:dificuldades,medidas_adotadas=:medidas,observacoes_professor=:observacoes,observacoes_turma_json=:observacoes_turma,medidas_adotadas_json=:medidas_lista,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
             $statement->execute([
                 ':status' => $newStatus, ':possui' => $hasStudents,
                 ':dificuldades' => $this->text($data['dificuldades_gerais'] ?? '', 4000),
                 ':medidas' => $this->text($data['medidas_adotadas'] ?? '', 4000),
                 ':observacoes' => $this->text($data['observacoes_professor'] ?? '', 4000),
+                ':observacoes_turma' => json_encode($this->choices($data['observacoes_turma']??[],['ALUNOS_FALTOSOS','DIFICULDADE_APRENDIZAGEM','INDISCIPLINA','DESINTERESSE','FALTA_ACOMPANHAMENTO_FAMILIAR','PROBLEMAS_EMOCIONAIS','DIFICULDADE_SOCIALIZACAO','PROBLEMAS_SAUDE','OUTROS']),JSON_UNESCAPED_UNICODE),
+                ':medidas_lista' => json_encode($this->choices($data['medidas_lista']??[],['CONVERSA_ALUNO','REUNIAO_RESPONSAVEIS','ENCAMINHAMENTO_COORDENACAO','RECUPERACAO_REFORCO','ATIVIDADES_DIFERENCIADAS','MUDANCA_ESTRATEGIA','ACOMPANHAMENTO_INDIVIDUAL','OUTROS']),JSON_UNESCAPED_UNICODE),
                 ':id' => $id, ':versao' => $report['versao'],
             ]);
             if ($statement->rowCount() !== 1) throw new HttpException(409, 'VERSION_CONFLICT', 'Conflito de atualização.');
@@ -121,7 +123,8 @@ final class ReportService
             if ((int)($student['id_turma'] ?? 0) !== (int)$report['turma_externa_id']) throw new HttpException(422, 'STUDENT_WRONG_CLASS', 'Aluno não pertence à turma do relatório.');
             $grade = $fields['nota'] ?? null;
             if ($grade !== '' && $grade !== null && (!is_numeric($grade) || (float)$grade < (float)Env::get('GRADE_MIN','0') || (float)$grade > (float)Env::get('GRADE_MAX','10'))) throw new HttpException(422, 'INVALID_GRADE', 'Nota fora da escala permitida.');
-            foreach (['motivo_rav','dificuldades','intervencoes'] as $field) if ($submit && trim((string)($fields[$field] ?? '')) === '') throw new HttpException(422, 'STUDENT_DATA_REQUIRED', 'Preencha os dados pedagógicos dos alunos.');
+            if($submit&&($grade===''||$grade===null))throw new HttpException(422,'STUDENT_GRADE_REQUIRED','Informe a nota de todos os alunos selecionados.');
+            foreach(['dificuldades','intervencoes']as$field)if($submit&&trim((string)($fields[$field]??''))==='')throw new HttpException(422,'STUDENT_DATA_REQUIRED','Preencha as dificuldades e as medidas adotadas de todos os alunos selecionados.');
             $validated[(int)$studentId] = [$student, $fields];
         }
         return $validated;
@@ -146,4 +149,7 @@ final class ReportService
 
     private function text(mixed $value, int $max): string
     { $value=trim((string)$value);if(mb_strlen($value)>$max)throw new HttpException(422,'TEXT_TOO_LONG','Um texto excedeu o limite permitido.');return$value; }
+
+    private function choices(mixed $values,array $allowed):array
+    {if(!is_array($values))return[];return array_values(array_unique(array_intersect($allowed,array_map('strval',$values))));}
 }
