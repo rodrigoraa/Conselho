@@ -63,10 +63,20 @@
 .compact-collapsible{margin:1rem 0}
 .compact-collapsible>summary{padding:.7rem;background:#f6f9fb;border:1px solid var(--border)}
 .admin-workspace{display:grid;gap:1rem}
-.admin-section-block{margin:0;scroll-margin-top:6rem}
+.admin-section-block{margin:0;padding:0;scroll-margin-top:6rem;overflow:visible}
 .admin-create-panel{margin:1rem 0 1.25rem;border:1px solid #cfdde6;border-radius:.6rem;background:#f7fafc;padding:.8rem}
 .admin-create-panel[open]{background:#fff}
 .admin-create-panel>summary{padding:.25rem}
 .binding-editor>form:before{content:"Editar vínculo"}
 .period-stage,.period-date-grid{grid-column:1/-1}
 @media(max-width:760px){.admin-create-panel{padding:.7rem}.admin-collapsible>summary strong{font-size:1.05rem}.period-date-grid{grid-template-columns:1fr}}
+.admin-module>summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;list-style:none;cursor:pointer;padding:1.15rem 1.35rem;border-radius:.75rem;color:#193a54}
+.admin-module>summary::-webkit-details-marker{display:none}
+.admin-module>summary:after{content:"+";display:grid;place-items:center;flex:0 0 2.25rem;height:2.25rem;border-radius:50%;background:#e4eef4;color:var(--navy);font-size:1.45rem;font-weight:700}
+.admin-module[open]>summary:after{content:"−"}
+.admin-module>summary>span{display:grid;gap:.08rem}
+.admin-module>summary strong{font-size:1.4rem;line-height:1.2}
+.admin-module>summary small{color:var(--muted);font-size:.85rem;font-weight:400}
+.admin-module-body{padding:1.2rem 1.35rem 1.35rem;border-top:1px solid var(--border)}
+.admin-module-tools{display:flex;justify-content:flex-end;margin-bottom:1rem}
+@media(max-width:760px){.admin-module>summary{padding:1rem}.admin-module>summary strong{font-size:1.2rem}.admin-module-body{padding:1rem}.admin-module-tools .search{width:100%}}

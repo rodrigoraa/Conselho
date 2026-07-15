@@ -21,18 +21,16 @@ ob_start();
 
 <div class="admin-workspace">
     <section class="card admin-section admin-section-block" id="usuarios">
-        <div class="section-heading">
-            <div>
-                <p class="eyebrow">Acessos</p>
-                <h2>Usuários</h2>
-                <p><?=count($users)?> usuário(s) cadastrado(s)</p>
-            </div>
+        <details class="admin-module">
+            <summary><span><span class="eyebrow">Acessos</span><strong>Usuários</strong><small><?=count($users)?> usuário(s) cadastrado(s)</small></span></summary>
+            <div class="admin-module-body">
+            <div class="admin-module-tools">
             <label class="search">
                 <span class="sr-only">Buscar usuário</span>
                 <span aria-hidden="true">⌕</span>
                 <input type="search" placeholder="Buscar por nome, e-mail ou perfil" data-card-search="#user-management-list" data-empty-target="#users-empty">
             </label>
-        </div>
+            </div>
 
         <details class="admin-collapsible admin-create-panel">
             <summary><span><strong>Novo usuário</strong><small>Crie um acesso para professor, coordenação ou administrador.</small></span></summary>
@@ -87,12 +85,14 @@ ob_start();
         <div id="users-empty" class="empty-state compact" <?=!$users?'':'hidden'?>>
             <p><?=$users?'Nenhum usuário corresponde à busca.':'Nenhum usuário cadastrado.'?></p>
         </div>
+            </div>
+        </details>
     </section>
 
     <section class="card admin-section admin-section-block" id="disciplinas">
-        <div class="section-heading">
-            <div><p class="eyebrow">Organização pedagógica</p><h2>Disciplinas</h2><p><?=count($disciplines)?> disciplina(s) cadastrada(s)</p></div>
-        </div>
+        <details class="admin-module">
+            <summary><span><span class="eyebrow">Organização pedagógica</span><strong>Disciplinas</strong><small><?=count($disciplines)?> disciplina(s) cadastrada(s)</small></span></summary>
+            <div class="admin-module-body">
         <details class="admin-collapsible admin-create-panel">
             <summary><span><strong>Nova disciplina</strong><small>Adicione uma disciplina para atribuí-la aos professores.</small></span></summary>
             <div class="admin-collapsible-body">
@@ -109,13 +109,15 @@ ob_start();
                 <form class="inline-form" method="post" action="/admin/disciplinas/<?=e($d['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger small-button" data-confirm="Excluir a disciplina <?=e($d['nome'])?>?<?=(int)$d['vinculos']>0?' Os vínculos, relatórios e preenchimentos relacionados também serão apagados.':''?> Esta ação não pode ser desfeita.">Excluir</button></form>
             </div><?php endforeach;?>
         </div><?php endif;?>
+            </div>
+        </details>
     </section>
 
     <section class="card admin-section admin-section-block binding-section" id="vinculos">
-        <div class="section-heading">
-            <div><p class="eyebrow">Distribuição</p><h2>Vínculos</h2><p><?=count($bindings)?> vínculo(s) entre professores, turmas e disciplinas</p></div>
-            <?php if($bindings):?><label class="search"><span class="sr-only">Buscar vínculo</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar professor, turma ou disciplina" data-card-search="#binding-management-list" data-empty-target="#bindings-empty"></label><?php endif;?>
-        </div>
+        <details class="admin-module">
+            <summary><span><span class="eyebrow">Distribuição</span><strong>Vínculos</strong><small><?=count($bindings)?> vínculo(s) cadastrado(s)</small></span></summary>
+            <div class="admin-module-body">
+        <?php if($bindings):?><div class="admin-module-tools"><label class="search"><span class="sr-only">Buscar vínculo</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar professor, turma ou disciplina" data-card-search="#binding-management-list" data-empty-target="#bindings-empty"></label></div><?php endif;?>
         <details class="admin-collapsible admin-create-panel">
             <summary><span><strong>Novo vínculo</strong><small>Escolha um professor e selecione suas turmas e disciplinas.</small></span></summary>
             <div class="admin-collapsible-body">
@@ -138,10 +140,14 @@ ob_start();
                 </div>
             </article><?php endforeach;?>
         </div><div id="bindings-empty" class="empty-state compact" hidden><p>Nenhum vínculo corresponde à busca.</p></div><?php endif;?>
+            </div>
+        </details>
     </section>
 
     <section class="card admin-section admin-section-block" id="periodos">
-        <div class="section-heading"><div><p class="eyebrow">Calendário</p><h2>Períodos</h2><p><?=count($periods)?> período(s) cadastrado(s)</p></div></div>
+        <details class="admin-module">
+            <summary><span><span class="eyebrow">Calendário</span><strong>Períodos</strong><small><?=count($periods)?> período(s) cadastrado(s)</small></span></summary>
+            <div class="admin-module-body">
         <details class="admin-collapsible admin-create-panel">
             <summary><span><strong>Novo período</strong><small>Defina a etapa e o prazo de preenchimento.</small></span></summary>
             <div class="admin-collapsible-body">
@@ -161,6 +167,8 @@ ob_start();
                 <td class="row-action"><div class="row-actions"><?php if($p['status']==='RASCUNHO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/abrir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="primary" data-confirm="Abrir este período? Serão gerados relatórios para <?=e($bindingCount)?> vínculo(s) ativo(s).">Abrir</button></form><?php elseif($p['status']==='ABERTO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/encerrar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Encerrar o período? Esta ação bloqueará novas edições.">Encerrar</button></form><?php endif;?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir o período <?=e($p['nome'])?>? Todos os relatórios e preenchimentos dele serão apagados. Esta ação não pode ser desfeita.">Excluir</button></form></div></td>
             </tr><?php endforeach;?>
         </tbody></table></div><?php endif;?>
+            </div>
+        </details>
     </section>
 </div>
 <?php
