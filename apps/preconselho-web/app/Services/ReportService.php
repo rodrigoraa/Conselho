@@ -35,6 +35,16 @@ final class ReportService
         if ($hasStudents === 0 && $students !== []) {
             throw new HttpException(422, 'RAV_STUDENTS_NOT_ALLOWED', 'Remova os alunos quando a resposta for não.');
         }
+        $difficulty = $this->studentChoices($data['dificuldades_turma'] ?? [], $data['dificuldades_turma_outros'] ?? '', $this->difficultyOptions());
+        $measures = $this->studentChoices($data['medidas_adotadas'] ?? [], $data['medidas_turma_outros'] ?? '', $this->measureOptions());
+        if ($hasStudents === 0) {
+            $difficulty = ['selected'=>[], 'other'=>'', 'summary'=>''];
+            $measures = ['selected'=>[], 'other'=>'', 'summary'=>''];
+        }
+        if ($submit && $hasStudents === 1) {
+            if ($difficulty['summary'] === '' || $measures['summary'] === '') throw new HttpException(422, 'CLASS_DATA_REQUIRED', 'Selecione as dificuldades observadas e as medidas adotadas para a turma.');
+            if ((in_array('OUTROS', $difficulty['selected'], true) && $difficulty['other'] === '') || (in_array('OUTROS', $measures['selected'], true) && $measures['other'] === '')) throw new HttpException(422, 'CLASS_OTHER_REQUIRED', 'Preencha os campos “Outros” selecionados.');
+        }
         if ($submit && date('Y-m-d') > $report['data_fim'] && !(bool)$report['liberado_fora_prazo']) {
             throw new HttpException(422, 'DEADLINE_EXPIRED', 'O prazo do período terminou.');
         }
@@ -44,9 +54,11 @@ final class ReportService
         $db = $this->repository->db;
         $db->beginTransaction();
         try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
+            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,dificuldades_gerais=:dificuldades,dificuldades_turma_json=:dificuldades_json,dificuldades_turma_outros=:dificuldades_outros,medidas_adotadas=:medidas,medidas_adotadas_json=:medidas_json,medidas_turma_outros=:medidas_outros,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
             $statement->execute([
                 ':status' => $newStatus, ':possui' => $hasStudents,
+                ':dificuldades'=>$difficulty['summary'], ':dificuldades_json'=>json_encode($difficulty['selected'], JSON_UNESCAPED_UNICODE), ':dificuldades_outros'=>$difficulty['other'],
+                ':medidas'=>$measures['summary'], ':medidas_json'=>json_encode($measures['selected'], JSON_UNESCAPED_UNICODE), ':medidas_outros'=>$measures['other'],
                 ':id' => $id, ':versao' => $report['versao'],
             ]);
             if ($statement->rowCount() !== 1) throw new HttpException(409, 'VERSION_CONFLICT', 'Conflito de atualização.');
@@ -118,11 +130,6 @@ final class ReportService
             $grade = $fields['nota'] ?? null;
             if ($grade !== '' && $grade !== null && (!is_numeric($grade) || (float)$grade < (float)Env::get('GRADE_MIN','0') || (float)$grade > (float)Env::get('GRADE_MAX','10'))) throw new HttpException(422, 'INVALID_GRADE', 'Nota fora da escala permitida.');
             if($submit&&($grade===''||$grade===null))throw new HttpException(422,'STUDENT_GRADE_REQUIRED','Informe a nota de todos os alunos selecionados.');
-            $difficulty=$this->studentChoices($fields['dificuldades']??[],$fields['dificuldades_outros']??'',$this->difficultyOptions());
-            $measures=$this->studentChoices($fields['intervencoes']??[],$fields['intervencoes_outros']??'',$this->measureOptions());
-            if($submit&&((in_array('OUTROS',$difficulty['selected'],true)&&$difficulty['other']==='')||(in_array('OUTROS',$measures['selected'],true)&&$measures['other']==='')))throw new HttpException(422,'STUDENT_OTHER_REQUIRED','Preencha os campos “Outros” selecionados.');
-            if($submit&&($difficulty['summary']===''||$measures['summary']===''))throw new HttpException(422,'STUDENT_DATA_REQUIRED','Selecione as dificuldades e as medidas adotadas de todos os alunos indicados.');
-            $fields['_difficulty']=$difficulty;$fields['_measures']=$measures;
             $validated[(int)$studentId] = [$student, $fields];
         }
         return $validated;
@@ -137,9 +144,8 @@ final class ReportService
             $delete->execute([$reportId, ...$keep]);
         } else $this->repository->db->prepare('DELETE FROM relatorio_alunos WHERE relatorio_id=:id')->execute([':id'=>$reportId]);
         foreach ($validated as $studentId => [$student, $fields]) {
-            $difficulty=$fields['_difficulty'];$measures=$fields['_measures'];
-            $statement = $this->repository->db->prepare("INSERT INTO relatorio_alunos(relatorio_id,aluno_externo_id,aluno_nome_snapshot,aluno_data_nascimento_snapshot,turma_externa_id,nota,motivo_rav,dificuldades,dificuldades_json,dificuldades_outros,intervencoes,intervencoes_json,intervencoes_outros,observacao) VALUES(:relatorio,:aluno,:nome,:nascimento,:turma,:nota,:motivo,:dificuldades,:dificuldades_json,:dificuldades_outros,:intervencoes,:intervencoes_json,:intervencoes_outros,:observacao) ON CONFLICT(relatorio_id,aluno_externo_id) DO UPDATE SET nota=excluded.nota,motivo_rav=excluded.motivo_rav,dificuldades=excluded.dificuldades,dificuldades_json=excluded.dificuldades_json,dificuldades_outros=excluded.dificuldades_outros,intervencoes=excluded.intervencoes,intervencoes_json=excluded.intervencoes_json,intervencoes_outros=excluded.intervencoes_outros,observacao=excluded.observacao,atualizado_em=CURRENT_TIMESTAMP");
-            $statement->execute([':relatorio'=>$reportId,':aluno'=>$studentId,':nome'=>$student['nome_completo'],':nascimento'=>$student['data_nascimento'],':turma'=>$student['id_turma'],':nota'=>($fields['nota']??'')===''?null:$fields['nota'],':motivo'=>$this->text($fields['motivo_rav']??'',2000),':dificuldades'=>$difficulty['summary'],':dificuldades_json'=>json_encode($difficulty['selected'],JSON_UNESCAPED_UNICODE),':dificuldades_outros'=>$difficulty['other'],':intervencoes'=>$measures['summary'],':intervencoes_json'=>json_encode($measures['selected'],JSON_UNESCAPED_UNICODE),':intervencoes_outros'=>$measures['other'],':observacao'=>$this->text($fields['observacao']??'',3000)]);
+            $statement = $this->repository->db->prepare("INSERT INTO relatorio_alunos(relatorio_id,aluno_externo_id,aluno_nome_snapshot,aluno_data_nascimento_snapshot,turma_externa_id,nota,motivo_rav,dificuldades,intervencoes,observacao) VALUES(:relatorio,:aluno,:nome,:nascimento,:turma,:nota,:motivo,'','',:observacao) ON CONFLICT(relatorio_id,aluno_externo_id) DO UPDATE SET aluno_nome_snapshot=excluded.aluno_nome_snapshot,aluno_data_nascimento_snapshot=excluded.aluno_data_nascimento_snapshot,nota=excluded.nota,motivo_rav=excluded.motivo_rav,observacao=excluded.observacao,atualizado_em=CURRENT_TIMESTAMP");
+            $statement->execute([':relatorio'=>$reportId,':aluno'=>$studentId,':nome'=>$student['nome_completo'],':nascimento'=>$student['data_nascimento'],':turma'=>$student['id_turma'],':nota'=>($fields['nota']??'')===''?null:$fields['nota'],':motivo'=>$this->text($fields['motivo_rav']??'',2000),':observacao'=>$this->text($fields['observacao']??'',3000)]);
         }
     }
 

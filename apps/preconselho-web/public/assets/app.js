@@ -18,11 +18,12 @@ document.querySelectorAll('[data-status-filter]').forEach(button=>button.addEven
 const studentSearch=document.querySelector('#student-search');
 studentSearch?.addEventListener('input',()=>{const term=studentSearch.value.toLocaleLowerCase('pt-BR').trim();document.querySelectorAll('[data-student-row]').forEach(item=>item.hidden=!!term&&!item.textContent.toLocaleLowerCase('pt-BR').includes(term))});
 
-const syncOtherChoiceFields=()=>document.querySelectorAll('.other-toggle').forEach(toggle=>{const target=document.getElementById(toggle.dataset.otherTarget||'');if(target&&!target.readOnly)target.disabled=toggle.disabled||!toggle.checked});
-const syncStudentSheet=()=>{let selected=0;document.querySelectorAll('[data-student-row]').forEach(row=>{const checkbox=row.querySelector('input[type="checkbox"]');if(!checkbox)return;row.classList.toggle('selected',checkbox.checked);if(!checkbox.disabled)row.querySelectorAll('.student-field').forEach(field=>{if(!field.readOnly)field.disabled=!checkbox.checked});if(checkbox.checked)selected++});syncOtherChoiceFields();const output=document.querySelector('#selected-student-count');if(output)output.textContent=String(selected)};
+const syncOtherChoiceFields=()=>document.querySelectorAll('.other-toggle').forEach(toggle=>{const target=document.getElementById(toggle.dataset.otherTarget||'');if(!target)return;const label=target.closest('label');if(label)label.hidden=!toggle.checked;if(!target.readOnly)target.disabled=toggle.disabled||!toggle.checked});
+const syncStudentSheet=()=>{let selected=0;document.querySelectorAll('[data-student-row]').forEach(row=>{const checkbox=row.querySelector('input[type="checkbox"]');if(!checkbox)return;row.classList.toggle('selected',checkbox.checked);if(!checkbox.checked)row.classList.remove('incomplete');if(!checkbox.disabled)row.querySelectorAll('.student-field').forEach(field=>{if(!field.readOnly)field.disabled=!checkbox.checked});if(checkbox.checked)selected++});syncOtherChoiceFields();const output=document.querySelector('#selected-student-count');if(output)output.textContent=String(selected)};
+const syncClassChoices=()=>{const enabled=document.querySelector('input[name="possui_alunos_rav"]:checked')?.value==='1';document.querySelectorAll('[data-class-choices]').forEach(section=>{const editable=section.dataset.editable==='1';section.classList.toggle('disabled-section',!enabled);section.querySelectorAll('.class-choice-field').forEach(field=>{if(!field.readOnly)field.disabled=!editable||!enabled})});syncOtherChoiceFields()};
 document.querySelectorAll('[data-student-row] input[type="checkbox"]').forEach(input=>input.addEventListener('change',syncStudentSheet));syncStudentSheet();
 document.querySelectorAll('.other-toggle').forEach(input=>input.addEventListener('change',syncOtherChoiceFields));
-document.querySelectorAll('input[name="possui_alunos_rav"]').forEach(radio=>radio.addEventListener('change',()=>{if(radio.checked&&radio.value==='0'){document.querySelectorAll('[data-student-row] input[type="checkbox"]:checked').forEach(input=>{input.checked=false});syncStudentSheet()}}));
+document.querySelectorAll('input[name="possui_alunos_rav"]').forEach(radio=>radio.addEventListener('change',()=>{if(radio.checked&&radio.value==='0'){document.querySelectorAll('[data-student-row] input[type="checkbox"]:checked').forEach(input=>{input.checked=false});syncStudentSheet()}syncClassChoices()}));syncClassChoices();
 
 document.querySelectorAll('[data-table-search]').forEach(input=>input.addEventListener('input',()=>{const term=input.value.toLocaleLowerCase('pt-BR').trim();document.querySelectorAll(`${input.dataset.tableSearch} tbody tr`).forEach(row=>row.hidden=!!term&&!row.textContent.toLocaleLowerCase('pt-BR').includes(term))}));
 
@@ -49,7 +50,30 @@ if(reportForm){
   const missingOutput=reportForm.querySelector('[data-missing-fields]');
   const autosaveStatus=reportForm.querySelector('[data-autosave-status]');
   let saveTimer=null,saveInFlight=null,dirty=false,submitting=false;
-  const reportState=()=>{const answer=reportForm.querySelector('input[name="possui_alunos_rav"]:checked')?.value;const selected=[...reportForm.querySelectorAll('[data-student-row]')].filter(row=>row.querySelector('input[type="checkbox"]')?.checked);const missing=[];let total=1,done=answer!==undefined?1:0;if(answer===undefined)missing.push('Informe se existem alunos indicados para o RAV.');if(answer==='1'&&!selected.length)missing.push('Selecione ao menos um aluno.');selected.forEach(row=>{const name=row.querySelector('td:nth-child(2) strong')?.textContent||'Aluno';total+=3;const grade=row.querySelector('.student-grade')?.value;if(grade!=='')done++;else missing.push(`Informe a nota de ${name}.`);const difficulties=[...row.querySelectorAll('input[name*="[dificuldades]"]:checked')],measures=[...row.querySelectorAll('input[name*="[intervencoes]"]:checked')];const otherDifficulty=difficulties.find(input=>input.value==='OUTROS'),otherMeasure=measures.find(input=>input.value==='OUTROS');if(difficulties.length&&(!otherDifficulty||document.getElementById(otherDifficulty.dataset.otherTarget||'')?.value.trim()))done++;else missing.push(difficulties.length?`Especifique a outra dificuldade de ${name}.`:`Marque uma dificuldade de ${name}.`);if(measures.length&&(!otherMeasure||document.getElementById(otherMeasure.dataset.otherTarget||'')?.value.trim()))done++;else missing.push(measures.length?`Especifique a outra medida de ${name}.`:`Marque uma medida adotada para ${name}.`);row.classList.toggle('incomplete',missing.some(item=>item.includes(name)))});const value=answer==='0'?100:Math.round(done/Math.max(total,1)*100);return{value,missing,answer}};
+  const reportState=()=>{
+    const answer=reportForm.querySelector('input[name="possui_alunos_rav"]:checked')?.value;
+    const selected=[...reportForm.querySelectorAll('[data-student-row]')].filter(row=>row.querySelector('input[type="checkbox"]')?.checked);
+    const missing=[];let total=1,done=answer!==undefined?1:0;
+    if(answer===undefined)missing.push('Informe se existem alunos que realizarão o RAV.');
+    if(answer==='1'){
+      total+=selected.length+2;
+      if(!selected.length)missing.push('Adicione ao menos um aluno que realizará o RAV.');
+      selected.forEach(row=>{const name=row.querySelector('td:nth-child(2) strong')?.textContent||'Aluno';const grade=row.querySelector('.student-grade')?.value;if(grade!=='')done++;else missing.push(`Informe a nota parcial de ${name}.`);row.classList.toggle('incomplete',grade==='')});
+      const difficulties=[...reportForm.querySelectorAll('input[name="dificuldades_turma[]"]:checked')];
+      const measures=[...reportForm.querySelectorAll('input[name="medidas_adotadas[]"]:checked')];
+      const otherDifficulty=difficulties.find(input=>input.value==='OUTROS');
+      const otherMeasure=measures.find(input=>input.value==='OUTROS');
+      const difficultyComplete=difficulties.length&&(!otherDifficulty||document.getElementById(otherDifficulty.dataset.otherTarget||'')?.value.trim());
+      const measuresComplete=measures.length&&(!otherMeasure||document.getElementById(otherMeasure.dataset.otherTarget||'')?.value.trim());
+      if(difficultyComplete)done++;else missing.push(difficulties.length?'Especifique as outras dificuldades da turma.':'Marque as dificuldades observadas na turma.');
+      if(measuresComplete)done++;else missing.push(measures.length?'Especifique as outras medidas adotadas.':'Marque as medidas adotadas para a turma.');
+      const sections=[...reportForm.querySelectorAll('.class-pedagogical-fields')];
+      sections[0]?.classList.toggle('incomplete',!difficultyComplete);
+      sections[1]?.classList.toggle('incomplete',!measuresComplete);
+    }else reportForm.querySelectorAll('[data-student-row],.class-pedagogical-fields').forEach(item=>item.classList.remove('incomplete'));
+    const value=answer==='0'?100:Math.round(done/Math.max(total,1)*100);
+    return{value,missing,answer};
+  };
   const renderProgress=()=>{const state=reportState();if(progress){progress.value=state.value;progress.textContent=`${state.value}%`;}if(progressLabel)progressLabel.textContent=`${state.value}% preenchido`;if(missingOutput)missingOutput.textContent=state.missing.length?state.missing.slice(0,3).join(' • '):'Todos os campos obrigatórios estão preenchidos.';return state};
   const autosave=()=>{if(!dirty||submitting)return saveInFlight||Promise.resolve();const state=reportState();if(state.answer===undefined)return Promise.resolve();dirty=false;if(autosaveStatus)autosaveStatus.textContent='Salvando alterações…';saveInFlight=fetch(reportForm.dataset.autosaveUrl,{method:'POST',body:new FormData(reportForm),headers:{'X-Requested-With':'XMLHttpRequest'}}).then(response=>{if(!response.ok)throw new Error('save');return response.json()}).then(data=>{const version=reportForm.querySelector('[data-report-version]');if(version)version.value=String(data.version);if(autosaveStatus)autosaveStatus.textContent=`✓ Alterações salvas às ${data.saved_at}`}).catch(()=>{dirty=true;if(autosaveStatus)autosaveStatus.textContent='Não foi possível salvar automaticamente. Use “Salvar para continuar depois”.'}).finally(()=>{saveInFlight=null});return saveInFlight};
   const scheduleSave=()=>{dirty=true;renderProgress();if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(autosave,1500)};
