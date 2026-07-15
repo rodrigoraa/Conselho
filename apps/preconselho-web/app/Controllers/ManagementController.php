@@ -4,7 +4,7 @@ namespace PreConselho\Controllers;
 use PreConselho\Integration\SecretariaApiClient;
 use PreConselho\Repositories\AppRepository;
 use PreConselho\Services\{AdminDeletionService,ReportService};
-use PreConselho\Support\Csrf;
+use PreConselho\Support\{Csrf,PasswordPolicy};
 use Shared\Exceptions\HttpException;
 use Shared\Http\{Request,Response};
 use Shared\Support\View;
@@ -48,7 +48,37 @@ final class ManagementController
 
     public function editUser(Request $request, array $params): Response
     {
-        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$statement=$this->repository->db->prepare('SELECT id,nome,email,perfil,ativo,alterar_senha FROM usuarios WHERE id=:id AND excluido_em IS NULL');$statement->execute([':id'=>$id]);$before=$statement->fetch()?:throw new HttpException(404,'USER_NOT_FOUND','Usuário não encontrado.');$name=trim((string)($request->body['nome']??''));$email=filter_var($request->body['email']??'',FILTER_VALIDATE_EMAIL);$role=(string)($request->body['perfil']??'');$password=(string)($request->body['senha']??'');if($name===''||mb_strlen($name)>150||!$email||!in_array($role,['ADMIN','COORDENADOR','PROFESSOR'],true)||($password!==''&&strlen($password)<10))throw new HttpException(422,'VALIDATION_ERROR','Confira os dados. A nova senha, quando informada, deve ter ao menos 10 caracteres.');if($id===(int)$_SESSION['user']['id']&&$role!=='ADMIN')throw new HttpException(422,'SELF_ROLE_CHANGE','Você não pode remover o próprio acesso administrativo.');$this->repository->db->beginTransaction();try{if($before['perfil']==='PROFESSOR'&&$role!=='PROFESSOR'){$check=$this->repository->db->prepare('SELECT COUNT(*) FROM vinculos_professor_turma_disciplina v JOIN professores p ON p.id=v.professor_id WHERE p.usuario_id=:id');$check->execute([':id'=>$id]);if((int)$check->fetchColumn()>0)throw new HttpException(422,'PROFESSOR_IN_USE','O perfil não pode ser alterado porque este professor possui vínculos.');$this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);}if($role==='PROFESSOR')$this->repository->db->prepare('INSERT INTO professores(usuario_id,ativo)VALUES(:id,1) ON CONFLICT(usuario_id) DO UPDATE SET ativo=1,atualizado_em=CURRENT_TIMESTAMP')->execute([':id'=>$id]);$sql='UPDATE usuarios SET nome=:nome,email=:email,perfil=:perfil,atualizado_em=CURRENT_TIMESTAMP'.($password!==''?',senha_hash=:senha,alterar_senha=:alterar_senha':'').' WHERE id=:id';$values=[':nome'=>$name,':email'=>mb_strtolower((string)$email),':perfil'=>$role,':id'=>$id];if($password!==''){$values[':senha']=password_hash($password,PASSWORD_DEFAULT);$values[':alterar_senha']=$id===(int)$_SESSION['user']['id']?0:1;}$this->repository->db->prepare($sql)->execute($values);$after=['nome'=>$name,'email'=>mb_strtolower((string)$email),'perfil'=>$role,'senha_alterada'=>$password!=='','troca_obrigatoria'=>$password!==''&&$id!==(int)$_SESSION['user']['id']];$this->repository->audit($_SESSION['user']['id'],'EDITAR','usuarios',$id,$before,$after,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\PDOException$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();if($e->getCode()==='23000')throw new HttpException(422,'EMAIL_IN_USE','Este e-mail já está sendo utilizado.');throw$e;}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}if($id===(int)$_SESSION['user']['id']){$_SESSION['user']['nome']=$name;$_SESSION['user']['perfil']=$role;if($password!=='')$_SESSION['user']['alterar_senha']=0;}$_SESSION['flash']=$password!==''&&$id!==(int)$_SESSION['user']['id']?'Usuário atualizado. Ele deverá criar uma nova senha no próximo acesso.':'Usuário atualizado com sucesso.';return Response::redirect('/admin#usuarios-lista');
+        Csrf::verify($request->body['_csrf']??null);
+        $id=(int)$params['id'];
+        $statement=$this->repository->db->prepare('SELECT id,nome,email,perfil,ativo,alterar_senha FROM usuarios WHERE id=:id AND excluido_em IS NULL');
+        $statement->execute([':id'=>$id]);
+        $before=$statement->fetch()?:throw new HttpException(404,'USER_NOT_FOUND','Usuário não encontrado.');
+        $name=trim((string)($request->body['nome']??''));
+        $email=filter_var($request->body['email']??'',FILTER_VALIDATE_EMAIL);
+        $role=(string)($request->body['perfil']??'');
+        $password=(string)($request->body['senha']??'');
+        if($name===''||mb_strlen($name)>150||!$email||!in_array($role,['ADMIN','COORDENADOR','PROFESSOR'],true)||($password!==''&&!PasswordPolicy::accepts($password)))throw new HttpException(422,'VALIDATION_ERROR','Confira os dados. A nova senha, quando informada, deve ter ao menos '.PasswordPolicy::MIN_LENGTH.' caracteres.');
+        if($id===(int)$_SESSION['user']['id']&&$role!=='ADMIN')throw new HttpException(422,'SELF_ROLE_CHANGE','Você não pode remover o próprio acesso administrativo.');
+        $this->repository->db->beginTransaction();
+        try{
+            if($before['perfil']==='PROFESSOR'&&$role!=='PROFESSOR'){
+                $check=$this->repository->db->prepare('SELECT COUNT(*) FROM vinculos_professor_turma_disciplina v JOIN professores p ON p.id=v.professor_id WHERE p.usuario_id=:id');$check->execute([':id'=>$id]);
+                if((int)$check->fetchColumn()>0)throw new HttpException(422,'PROFESSOR_IN_USE','O perfil não pode ser alterado porque este professor possui vínculos.');
+                $this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);
+            }
+            if($role==='PROFESSOR')$this->repository->db->prepare('INSERT INTO professores(usuario_id,ativo)VALUES(:id,1) ON CONFLICT(usuario_id) DO UPDATE SET ativo=1,atualizado_em=CURRENT_TIMESTAMP')->execute([':id'=>$id]);
+            $sql='UPDATE usuarios SET nome=:nome,email=:email,perfil=:perfil,atualizado_em=CURRENT_TIMESTAMP'.($password!==''?',senha_hash=:senha,alterar_senha=:alterar_senha':'').' WHERE id=:id';
+            $values=[':nome'=>$name,':email'=>mb_strtolower((string)$email),':perfil'=>$role,':id'=>$id];
+            if($password!==''){$values[':senha']=password_hash($password,PASSWORD_DEFAULT);$values[':alterar_senha']=$id===(int)$_SESSION['user']['id']?0:1;}
+            $this->repository->db->prepare($sql)->execute($values);
+            $after=['nome'=>$name,'email'=>mb_strtolower((string)$email),'perfil'=>$role,'senha_alterada'=>$password!=='','troca_obrigatoria'=>$password!==''&&$id!==(int)$_SESSION['user']['id']];
+            $this->repository->audit($_SESSION['user']['id'],'EDITAR','usuarios',$id,$before,$after,$request->ip(),$request->header('User-Agent')??'');
+            $this->repository->db->commit();
+        }catch(\PDOException$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();if($e->getCode()==='23000')throw new HttpException(422,'EMAIL_IN_USE','Este e-mail já está sendo utilizado.');throw$e;}
+        catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}
+        if($id===(int)$_SESSION['user']['id']){$_SESSION['user']['nome']=$name;$_SESSION['user']['perfil']=$role;if($password!=='')$_SESSION['user']['alterar_senha']=0;}
+        $_SESSION['flash']=$password!==''&&$id!==(int)$_SESSION['user']['id']?'Usuário atualizado. Ele deverá criar uma nova senha no próximo acesso.':'Usuário atualizado com sucesso.';
+        return Response::redirect('/admin#usuarios-lista');
     }
 
     public function deleteUser(Request $request, array $params): Response
