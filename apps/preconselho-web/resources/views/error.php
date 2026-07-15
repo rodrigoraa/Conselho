@@ -1,0 +1,1 @@
+<?php ob_start();?><section class="card narrow"><h1><?=e($title)?></h1><p role="alert"><?=e($message)?></p><a class="button" href="<?=e($back)?>">Voltar</a></section><?php $content=ob_get_clean();require __DIR__.'/layout.php';

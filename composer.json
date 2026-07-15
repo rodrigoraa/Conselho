@@ -1,0 +1,12 @@
+{
+  "name": "escola/preconselho-escolar",
+  "description": "Monorepo do pre-conselho escolar e API somente leitura da secretaria",
+  "license": "proprietary",
+  "type": "project",
+  "require": {"php": ">=8.2", "ext-pdo": "*", "ext-pdo_sqlite": "*", "ext-json": "*", "ext-curl": "*"},
+  "require-dev": {"phpunit/phpunit": "^11.0"},
+  "autoload": {"psr-4": {"Shared\\": "shared/", "SecretariaApi\\": "apps/secretaria-api/app/", "PreConselho\\": "apps/preconselho-web/app/"}},
+  "autoload-dev": {"psr-4": {"Tests\\": "tests/"}},
+  "scripts": {"test": "phpunit", "migrate": "php scripts/console.php migrate", "seed": "php scripts/console.php seed"},
+  "config": {"sort-packages": true}
+}

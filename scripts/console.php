@@ -1,0 +1,14 @@
+<?php declare(strict_types=1);
+use Shared\Database\ConnectionFactory;use Shared\Env;
+require dirname(__DIR__).'/vendor/autoload.php';Env::load(dirname(__DIR__).'/.env');$command=$argv[1]??'help';$path=Env::get('PRECONSELHO_DB_PATH',dirname(__DIR__).'/storage/preconselho.db')??'';$db=ConnectionFactory::preconselho($path);
+try{
+ if($command==='migrate'){
+  $db->exec('CREATE TABLE IF NOT EXISTS migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,nome TEXT NOT NULL UNIQUE,executada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');$files=glob(dirname(__DIR__).'/apps/preconselho-web/database/migrations/*.sql')?:[];sort($files);
+  foreach($files as$file){$name=basename($file);$check=$db->prepare('SELECT 1 FROM migrations WHERE nome=?');$check->execute([$name]);if($check->fetchColumn())continue;$db->beginTransaction();try{$db->exec((string)file_get_contents($file));$db->prepare('INSERT INTO migrations(nome)VALUES(?)')->execute([$name]);$db->commit();echo "Aplicada: $name\n";}catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}}echo "Migrations concluídas.\n";
+ }elseif($command==='seed'){
+  $password=Env::get('SEED_ADMIN_PASSWORD','');if(!$password||strlen($password)<10)throw new RuntimeException('Defina SEED_ADMIN_PASSWORD com pelo menos 10 caracteres.');
+  $users=[['Administrador','admin@escola.local','ADMIN'],['Coordenação','coordenacao@escola.local','COORDENADOR'],['Professor Um','professor1@escola.local','PROFESSOR'],['Professor Dois','professor2@escola.local','PROFESSOR']];$db->beginTransaction();try{foreach($users as[$name,$email,$role]){$db->prepare('INSERT OR IGNORE INTO usuarios(nome,email,senha_hash,perfil)VALUES(?,?,?,?)')->execute([$name,$email,password_hash($password,PASSWORD_DEFAULT),$role]);if($role==='PROFESSOR'){$id=(int)$db->query("SELECT id FROM usuarios WHERE email=".$db->quote($email))->fetchColumn();$db->prepare('INSERT OR IGNORE INTO professores(usuario_id)VALUES(?)')->execute([$id]);}}foreach(['Língua Portuguesa','Matemática','Ciências']as$name)$db->prepare('INSERT OR IGNORE INTO disciplinas(nome)VALUES(?)')->execute([$name]);$db->commit();}catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}echo "Seed V2 concluído. Altere as senhas imediatamente.\n";
+ }elseif($command==='create-admin'){
+  $email=$argv[2]??'';$name=$argv[3]??'Administrador';$password=$argv[4]??'';if(!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($password)<10)throw new RuntimeException('Uso: create-admin email nome senha-com-10-caracteres');$db->prepare("INSERT INTO usuarios(nome,email,senha_hash,perfil)VALUES(?,?,?,'ADMIN')")->execute([$name,mb_strtolower($email),password_hash($password,PASSWORD_DEFAULT)]);echo "Administrador criado.\n";
+ }else echo "Comandos: migrate | seed | create-admin EMAIL NOME SENHA\n";
+}catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

@@ -1,0 +1,8 @@
+<?php declare(strict_types=1);
+namespace PreConselho\Integration;
+use RuntimeException;use Shared\Env;
+class SecretariaApiClient
+{
+ public function get(string$path,array$query=[]):array{$base=rtrim(Env::get('SECRETARIA_API_URL','')??'','/');$url=$base.'/'.$path.($query?'?'.http_build_query($query):'');$last=null;for($i=0;$i<2;$i++){try{$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Accept: application/json','X-API-Key: '.(Env::get('SECRETARIA_API_KEY','')??'')],CURLOPT_CONNECTTIMEOUT=>2,CURLOPT_TIMEOUT=>Env::int('SECRETARIA_API_TIMEOUT',5),CURLOPT_FOLLOWLOCATION=>false]);$raw=curl_exec($ch);$status=curl_getinfo($ch,CURLINFO_RESPONSE_CODE);$error=curl_error($ch);curl_close($ch);if($raw===false||$status>=500)throw new RuntimeException($error?:'Falha temporária da API.');$json=json_decode((string)$raw,true,512,JSON_THROW_ON_ERROR);if($status<200||$status>=300||!is_array($json)||($json['success']??false)!==true||!array_key_exists('data',$json))throw new RuntimeException('Resposta inválida da Secretaria API.');return$json['data'];}catch(\Throwable$e){$last=$e;if($i===0)usleep(100000);}}throw new RuntimeException('Não foi possível consultar a Secretaria API.',0,$last);}
+ public function turma(int$id):array{return$this->get('turmas/'.$id);}public function aluno(int$id):array{return$this->get('alunos/'.$id);}public function alunosDaTurma(int$id):array{return$this->get('turmas/'.$id.'/alunos',['limite'=>100]);}
+}

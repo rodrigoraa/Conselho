@@ -1,0 +1,16 @@
+<?php declare(strict_types=1);
+namespace PreConselho\Repositories;
+use PDO;
+final class AppRepository
+{
+ public function __construct(public readonly PDO $db){}
+ public function userByEmail(string$e):?array{$s=$this->db->prepare('SELECT * FROM usuarios WHERE email=:e');$s->execute([':e'=>$e]);return$s->fetch()?:null;}
+ public function user(int$id):?array{$s=$this->db->prepare('SELECT id,nome,email,perfil,ativo FROM usuarios WHERE id=:id');$s->execute([':id'=>$id]);return$s->fetch()?:null;}
+ public function professorByUser(int$id):?array{$s=$this->db->prepare('SELECT * FROM professores WHERE usuario_id=:id AND ativo=1');$s->execute([':id'=>$id]);return$s->fetch()?:null;}
+ public function report(int$id):?array{$s=$this->db->prepare("SELECT r.*,p.nome periodo,p.ano_letivo,p.etapa,p.data_inicio,p.data_fim,p.status periodo_status,v.turma_externa_id,v.turma_nome_snapshot,v.turma_ano_letivo_snapshot,d.nome disciplina,u.nome professor_nome,pr.usuario_id professor_usuario_id FROM relatorios_pre_conselho r JOIN periodos_pre_conselho p ON p.id=r.periodo_id JOIN vinculos_professor_turma_disciplina v ON v.id=r.vinculo_id JOIN disciplinas d ON d.id=v.disciplina_id JOIN professores pr ON pr.id=v.professor_id JOIN usuarios u ON u.id=pr.usuario_id WHERE r.id=:id");$s->execute([':id'=>$id]);return$s->fetch()?:null;}
+ public function reportStudents(int$id):array{$s=$this->db->prepare('SELECT * FROM relatorio_alunos WHERE relatorio_id=:id ORDER BY aluno_nome_snapshot');$s->execute([':id'=>$id]);return$s->fetchAll();}
+ public function history(int$id):array{$s=$this->db->prepare('SELECT h.*,u.nome usuario_nome FROM historico_status_relatorio h JOIN usuarios u ON u.id=h.usuario_id WHERE relatorio_id=:id ORDER BY h.id');$s->execute([':id'=>$id]);return$s->fetchAll();}
+ public function professorReports(int$user):array{$s=$this->db->prepare("SELECT r.*,p.nome periodo,p.data_fim,p.ano_letivo,v.turma_nome_snapshot,d.nome disciplina FROM relatorios_pre_conselho r JOIN periodos_pre_conselho p ON p.id=r.periodo_id JOIN vinculos_professor_turma_disciplina v ON v.id=r.vinculo_id JOIN disciplinas d ON d.id=v.disciplina_id JOIN professores pr ON pr.id=v.professor_id WHERE pr.usuario_id=:u ORDER BY p.data_fim,r.id");$s->execute([':u'=>$user]);return$s->fetchAll();}
+ public function coordinationReports():array{return$this->db->query("SELECT r.*,p.nome periodo,p.data_fim,v.turma_nome_snapshot,d.nome disciplina,u.nome professor_nome FROM relatorios_pre_conselho r JOIN periodos_pre_conselho p ON p.id=r.periodo_id JOIN vinculos_professor_turma_disciplina v ON v.id=r.vinculo_id JOIN disciplinas d ON d.id=v.disciplina_id JOIN professores pr ON pr.id=v.professor_id JOIN usuarios u ON u.id=pr.usuario_id ORDER BY p.data_fim,u.nome")->fetchAll();}
+ public function audit(?int$uid,string$a,string$e,?int$id,mixed$before,mixed$after,string$ip,string$ua):void{$s=$this->db->prepare('INSERT INTO auditoria(usuario_id,acao,entidade,entidade_id,dados_anteriores,dados_novos,endereco_ip,user_agent)VALUES(:u,:a,:e,:i,:b,:n,:ip,:ua)');$s->execute([':u'=>$uid,':a'=>$a,':e'=>$e,':i'=>$id,':b'=>$before===null?null:json_encode($before,JSON_UNESCAPED_UNICODE),':n'=>$after===null?null:json_encode($after,JSON_UNESCAPED_UNICODE),':ip'=>$ip,':ua'=>mb_substr($ua,0,255)]);}
+}

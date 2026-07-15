@@ -1,0 +1,1 @@
+<?php declare(strict_types=1);$errors=[];if(PHP_VERSION_ID<80200)$errors[]='PHP 8.2+ é obrigatório.';foreach(['pdo','pdo_sqlite','json','curl','mbstring']as$e)if(!extension_loaded($e))$errors[]="Extensão ausente: $e";if($errors){fwrite(STDERR,implode(PHP_EOL,$errors).PHP_EOL);exit(1);}echo "Requisitos atendidos (PHP ".PHP_VERSION.").\n";

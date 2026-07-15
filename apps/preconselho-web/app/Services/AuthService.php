@@ -1,0 +1,8 @@
+<?php declare(strict_types=1);
+namespace PreConselho\Services;
+use DateTimeImmutable;use PreConselho\Repositories\AppRepository;use Shared\Env;use Shared\Exceptions\HttpException;
+final class AuthService
+{
+ public function __construct(private readonly AppRepository$r){}
+ public function login(string$email,string$password,string$ip,string$ua):array{$email=mb_strtolower(trim($email));if(!filter_var($email,FILTER_VALIDATE_EMAIL))throw new HttpException(422,'VALIDATION_ERROR','E-mail ou senha inválidos.');$u=$this->r->userByEmail($email);if(!$u||!(bool)$u['ativo'])throw new HttpException(401,'LOGIN_INVALID','E-mail ou senha inválidos.');if($u['bloqueado_ate']&&new DateTimeImmutable($u['bloqueado_ate'])>new DateTimeImmutable())throw new HttpException(429,'LOGIN_BLOCKED','Acesso temporariamente bloqueado.');if(!password_verify($password,$u['senha_hash'])){$tries=(int)$u['tentativas_login']+1;$blocked=$tries>=Env::int('LOGIN_MAX_ATTEMPTS',5)?(new DateTimeImmutable())->modify('+'.Env::int('LOGIN_BLOCK_MINUTES',15).' minutes')->format('Y-m-d H:i:s'):null;$s=$this->r->db->prepare('UPDATE usuarios SET tentativas_login=:t,bloqueado_ate=:b WHERE id=:id');$s->execute([':t'=>$tries,':b'=>$blocked,':id'=>$u['id']]);throw new HttpException(401,'LOGIN_INVALID','E-mail ou senha inválidos.');}if(password_needs_rehash($u['senha_hash'],PASSWORD_DEFAULT)){$s=$this->r->db->prepare('UPDATE usuarios SET senha_hash=:h WHERE id=:id');$s->execute([':h'=>password_hash($password,PASSWORD_DEFAULT),':id'=>$u['id']]);}$this->r->db->prepare('UPDATE usuarios SET tentativas_login=0,bloqueado_ate=NULL,ultimo_login_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':id'=>$u['id']]);$this->r->audit((int)$u['id'],'LOGIN','usuarios',(int)$u['id'],null,['sucesso'=>true],$ip,$ua);return$u;}
+}

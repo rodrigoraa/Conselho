@@ -1,0 +1,4 @@
+<?php declare(strict_types=1);
+namespace SecretariaApi\Middlewares;
+use Shared\Env;use Shared\Exceptions\HttpException;use Shared\Http\Request;
+final class RateLimitMiddleware{public function __construct(private readonly string$dir){}public function __invoke(Request$r,callable$next):mixed{$limit=Env::int('SECRETARIA_API_RATE_LIMIT',120);$bucket=(string)floor(time()/60);$file=$this->dir.'/'.hash('sha256',$r->ip().$bucket).'.rate';if(!is_dir($this->dir))mkdir($this->dir,0770,true);$h=fopen($file,'c+');if($h===false)throw new HttpException(503,'RATE_LIMIT_UNAVAILABLE','Serviço temporariamente indisponível.');flock($h,LOCK_EX);$count=(int)stream_get_contents($h)+1;ftruncate($h,0);rewind($h);fwrite($h,(string)$count);flock($h,LOCK_UN);fclose($h);if($count>$limit)throw new HttpException(429,'RATE_LIMITED','Muitas requisições. Tente novamente em instantes.');return$next($r);}}
