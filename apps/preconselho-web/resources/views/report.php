@@ -46,7 +46,7 @@ ob_start();
 <nav class="breadcrumbs" aria-label="Caminho"><a href="/">Painel</a> <span aria-hidden="true">›</span> Relatório</nav>
 <section class="page-heading">
     <div><p class="eyebrow">Relatório de Pré-Conselho de Classe</p><h1><?=e($report['turma_nome_snapshot'])?></h1><p><?=e($report['periodo'])?> · <?=e($report['disciplina'])?></p></div>
-    <div class="heading-actions"><span class="badge status-<?=e(strtolower($report['status']))?>"><?=e($statusLabels[$report['status']]??$report['status'])?></span><?php if(($_SESSION['user']['perfil']??'')!=='PROFESSOR'):?><button type="button" onclick="window.print()">Imprimir relatório</button><?php endif;?></div>
+    <div class="heading-actions"><span class="badge status-<?=e(strtolower($report['status']))?>"><?=e($statusLabels[$report['status']]??$report['status'])?></span><?php if(($_SESSION['user']['perfil']??'')!=='PROFESSOR'):?><button type="button" data-print-page>Imprimir relatório</button><?php endif;?></div>
 </section>
 
 <?php if(($_SESSION['user']['perfil']??'')!=='PROFESSOR'&&$selected):?>

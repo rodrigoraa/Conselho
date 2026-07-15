@@ -1,5 +1,5 @@
 <?php ob_start();?>
-<section class="page-heading"><div><p class="eyebrow">Visão da coordenação</p><h1>Consolidado de alunos</h1><p>Alunos que realizarão o RAV nos relatórios aprovados.</p></div><div class="actions"><a class="button" href="?formato=csv">Exportar planilha (CSV)</a><button class="primary" type="button" onclick="window.print()">Imprimir</button></div></section>
+<section class="page-heading"><div><p class="eyebrow">Visão da coordenação</p><h1>Consolidado de alunos</h1><p>Alunos que realizarão o RAV nos relatórios aprovados.</p></div><div class="actions"><a class="button" href="?formato=csv">Exportar planilha (CSV)</a><button class="primary" type="button" data-print-page>Imprimir</button></div></section>
 <section class="card">
     <div class="section-heading"><div><h2>Alunos indicados</h2><p><span id="consolidated-count"><?=count($rows)?></span> registro(s) aprovado(s)</p></div><?php if($rows):?><label class="search"><span class="sr-only">Buscar no consolidado</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar aluno, turma ou disciplina" data-table-search="#consolidated-table"></label><?php endif;?></div>
     <?php if(!$rows):?><div class="empty-state"><span aria-hidden="true">✓</span><h3>Ainda não há dados consolidados</h3><p>Os alunos aparecerão aqui após a aprovação dos relatórios.</p></div><?php else:?>

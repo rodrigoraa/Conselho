@@ -1,4 +1,5 @@
 document.querySelectorAll('[data-confirm]').forEach(el=>el.addEventListener('click',e=>{if(!confirm(el.dataset.confirm))e.preventDefault()}));
+document.querySelectorAll('[data-print-page]').forEach(button=>button.addEventListener('click',()=>window.print()));
 
 const menuButton=document.querySelector('.menu-toggle');
 const mainNav=document.querySelector('#main-nav');
