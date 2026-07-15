@@ -18,3 +18,37 @@
 @media(max-width:430px){.brand small{display:none}.metrics,.teacher-summary,.coordination-summary{grid-template-columns:1fr}.metric:last-child{grid-column:auto}.metric{display:grid;grid-template-columns:1fr auto;align-items:center}.metric strong{grid-row:1/3;grid-column:2}.metric small{grid-column:1}.page-heading h1{font-size:1.7rem}}
 @media print{.class-choice-list label:has(input:not(:checked)){display:none}.class-choice-list input{display:none}.class-pedagogical-fields.disabled-section{opacity:1}.rav-student-table textarea{border:0;padding:0;resize:none}}
 @media print{.app-header,.actions,.button,button,footer,.breadcrumbs,.search,.admin-nav,.quick-help,.report-progress,.review-card,.history{display:none!important}body{background:#fff}main{padding:0;max-width:none}.card{border:0;box-shadow:none;padding:0}.student-sheet-table table{display:table!important;min-width:0!important;font-size:8pt}.student-sheet-table thead{display:table-header-group!important;position:static!important}.student-sheet-table tbody{display:table-row-group!important}.student-sheet-table tr{display:table-row!important;border:0!important;box-shadow:none!important}.student-sheet-table th,.student-sheet-table td{display:table-cell!important;padding:.25rem!important;border:1px solid #bbb!important}.student-sheet-table td:before{display:none!important}.student-choice-list label{font-size:7pt}.student-choice-list input:not(:checked)+span{display:none}.student-choice-list input{display:none}.print-only{display:block}@page{size:A4 landscape;margin:1cm}}
+.print-document{display:none}
+@media print{
+  @page{size:A4 landscape;margin:8mm}
+  html,body{background:#fff!important;color:#000!important;font-family:Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.2}
+  main{width:auto!important;margin:0!important;padding:0!important}
+  main>*{display:none!important}
+  main>.print-document{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9mm;width:100%;color:#000}
+  .print-document *{box-sizing:border-box;color:#000!important}
+  .print-column{min-width:0}
+  .print-document h1{font-size:14pt;line-height:1.1;text-decoration:underline;margin:0 0 4mm;font-weight:800}
+  .print-document p{margin:0 0 1.5mm}
+  .print-focus{font-size:10.5pt}.print-school{font-size:10.5pt;margin-bottom:2mm!important}
+  .print-identification{margin:0 0 3mm}
+  .print-identification div{display:grid;grid-template-columns:max-content 1fr;align-items:end;gap:2mm;margin-bottom:1.5mm}
+  .print-identification dt{font-weight:700}.print-identification dd{margin:0;min-height:4mm;padding:0 1mm;border-bottom:1px solid #000;font-weight:600}
+  .print-student-title{margin-bottom:2mm!important}
+  .print-student-table{display:table!important;width:100%!important;min-width:0!important;border-collapse:collapse;table-layout:fixed;margin:0 0 5mm}
+  .print-student-table thead{display:table-header-group!important;position:static!important}
+  .print-student-table tbody{display:table-row-group!important}
+  .print-student-table tr{display:table-row!important;border:0!important;padding:0!important}
+  .print-student-table th,.print-student-table td{display:table-cell!important;border:1px solid #000!important;padding:1mm 1.5mm!important;text-align:left;vertical-align:middle;height:7mm;font-size:9.5pt;background:#fff!important}
+  .print-student-table th:last-child,.print-student-table td:last-child{width:25%;text-align:center}
+  .print-options h2{font-size:10.5pt;margin:0 0 2.5mm;font-weight:800}
+  .print-options p{font-size:10pt;margin:0 0 1.5mm}
+  .print-difficulties-right{margin-top:1mm;margin-bottom:3mm}
+  .print-fill-line{display:inline-block;min-width:42mm;min-height:3mm;border-bottom:1px solid #000;vertical-align:bottom}
+  .print-guidance{margin-top:3mm;font-size:9.5pt;text-align:justify}
+  .print-guidance>p{font-weight:700;margin-bottom:1.5mm}
+  .print-guidance ul{margin:0;padding-left:5mm}
+  .print-guidance li{margin:0 0 1.3mm;padding-left:1mm}
+  .print-signatures{margin-top:6mm}
+  .print-signatures p{display:grid;grid-template-columns:max-content 1fr;gap:2mm;align-items:end;margin-bottom:2mm}
+  .print-signatures span{display:block;border-bottom:1px solid #000;min-height:4mm}
+}
