@@ -80,3 +80,11 @@
 .admin-module-body{padding:1.2rem 1.35rem 1.35rem;border-top:1px solid var(--border)}
 .admin-module-tools{display:flex;justify-content:flex-end;margin-bottom:1rem}
 @media(max-width:760px){.admin-module>summary{padding:1rem}.admin-module>summary strong{font-size:1.2rem}.admin-module-body{padding:1rem}.admin-module-tools .search{width:100%}}
+.binding-professor-list{display:grid;gap:.75rem}
+.binding-professor-group{border:1px solid var(--border);border-radius:.65rem;background:#fff;overflow:hidden}
+.binding-professor-details>summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;list-style:none;cursor:pointer;padding:1rem;background:#f8fafb}
+.binding-professor-details>summary::-webkit-details-marker{display:none}
+.binding-professor-details[open]>summary{border-bottom:1px solid var(--border)}
+.binding-group-body{display:grid;gap:.55rem;padding:.75rem}
+.binding-group-body .binding-management-card{box-shadow:none}
+@media(max-width:760px){.binding-professor-details>summary{align-items:flex-start;flex-direction:column}.binding-group-body{padding:.6rem}}

@@ -1,6 +1,13 @@
 <?php
 use PreConselho\Support\Csrf;
 
+$bindingsByProfessor=[];
+foreach($bindings as $binding){
+    $professorId=(int)$binding['usuario_id'];
+    $bindingsByProfessor[$professorId]??=['nome'=>$binding['professor_nome'],'rows'=>[]];
+    $bindingsByProfessor[$professorId]['rows'][]=$binding;
+}
+
 ob_start();
 ?>
 <section class="page-heading">
@@ -130,16 +137,28 @@ ob_start();
                 </form>
             </div>
         </details>
-        <?php if(!$bindings):?><div class="empty-state compact"><p>Nenhum vínculo cadastrado.</p></div><?php else:?><div class="binding-management-list" id="binding-management-list">
-            <?php foreach($bindings as $b):?><article class="binding-management-card">
-                <div><strong><?=e($b['professor_nome'])?></strong><span><?=e($b['turma_nome_snapshot'])?> · <?=e($b['disciplina_nome'])?></span><small><?=e($b['relatorios'])?> relatório(s) · <?=e($b['ativo']?'Ativo':'Inativo')?></small></div>
-                <div class="user-card-actions">
-                    <?php if((int)$b['relatorios']===0):?><details class="user-editor binding-editor"><summary class="button">Editar</summary><form method="post" action="/admin/vinculos/<?=e($b['id'])?>/editar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><label>Professor<select name="professor_id" required><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>" <?=(int)$p['id']===(int)$b['usuario_id']?'selected':''?>><?=e($p['nome'])?></option><?php endforeach;?></select></label><label>Turma<select name="turma_id" required><?php foreach($classes as $c):?><option value="<?=e($c['id'])?>" <?=(int)$c['id']===(int)$b['turma_externa_id']?'selected':''?>><?=e($c['nome_turma'])?></option><?php endforeach;?></select></label><label>Disciplina<select name="disciplina_id" required><?php foreach($disciplines as $d):?><option value="<?=e($d['id'])?>" <?=(int)$d['id']===(int)$b['disciplina_id']?'selected':''?>><?=e($d['nome'])?></option><?php endforeach;?></select></label><div class="actions"><button type="button" data-close-details>Cancelar</button><button class="primary">Salvar vínculo</button></div></form></details><?php endif;?>
-                    <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/alternar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Confirma a alteração deste vínculo?"><?=e($b['ativo']?'Desativar':'Ativar')?></button></form>
-                    <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir este vínculo?<?=(int)$b['relatorios']>0?' Os '.e($b['relatorios']).' relatório(s) e preenchimentos relacionados também serão apagados.':''?> Esta ação não pode ser desfeita.">Excluir</button></form>
-                </div>
-            </article><?php endforeach;?>
-        </div><div id="bindings-empty" class="empty-state compact" hidden><p>Nenhum vínculo corresponde à busca.</p></div><?php endif;?>
+        <?php if(!$bindings):?><div class="empty-state compact"><p>Nenhum vínculo cadastrado.</p></div><?php else:?><div class="binding-professor-list" id="binding-management-list">
+            <?php foreach($bindingsByProfessor as $group):$rows=$group['rows'];$classCount=count(array_unique(array_column($rows,'turma_externa_id')));$disciplineCount=count(array_unique(array_column($rows,'disciplina_id')));$activeCount=count(array_filter($rows,static fn(array $row):bool=>(bool)$row['ativo']));?>
+                <article class="binding-professor-group">
+                    <details class="binding-professor-details">
+                        <summary>
+                            <span class="professor-identity"><span class="avatar" aria-hidden="true"><?=e(mb_strtoupper(mb_substr($group['nome'],0,1)))?></span><span><strong><?=e($group['nome'])?></strong><small><?=count($rows)?> vínculo(s) · <?=$classCount?> turma(s) · <?=$disciplineCount?> disciplina(s)</small></span></span>
+                            <span class="badge status-<?=$activeCount?'aprovado':'pendente'?>"><?=$activeCount?> ativo(s)</span>
+                        </summary>
+                        <div class="binding-group-body">
+                            <?php foreach($rows as $b):?><div class="binding-management-card">
+                                <div><strong><?=e($b['turma_nome_snapshot'])?></strong><span><?=e($b['disciplina_nome'])?></span><small><?=e($b['relatorios'])?> relatório(s) · <?=e($b['ativo']?'Ativo':'Inativo')?></small></div>
+                                <div class="user-card-actions">
+                                    <?php if((int)$b['relatorios']===0):?><details class="user-editor binding-editor"><summary class="button">Editar</summary><form method="post" action="/admin/vinculos/<?=e($b['id'])?>/editar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><label>Professor<select name="professor_id" required><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>" <?=(int)$p['id']===(int)$b['usuario_id']?'selected':''?>><?=e($p['nome'])?></option><?php endforeach;?></select></label><label>Turma<select name="turma_id" required><?php foreach($classes as $c):?><option value="<?=e($c['id'])?>" <?=(int)$c['id']===(int)$b['turma_externa_id']?'selected':''?>><?=e($c['nome_turma'])?></option><?php endforeach;?></select></label><label>Disciplina<select name="disciplina_id" required><?php foreach($disciplines as $d):?><option value="<?=e($d['id'])?>" <?=(int)$d['id']===(int)$b['disciplina_id']?'selected':''?>><?=e($d['nome'])?></option><?php endforeach;?></select></label><div class="actions"><button type="button" data-close-details>Cancelar</button><button class="primary">Salvar vínculo</button></div></form></details><?php endif;?>
+                                    <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/alternar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Confirma a alteração deste vínculo?"><?=e($b['ativo']?'Desativar':'Ativar')?></button></form>
+                                    <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir este vínculo?<?=(int)$b['relatorios']>0?' Os '.e($b['relatorios']).' relatório(s) e preenchimentos relacionados também serão apagados.':''?> Esta ação não pode ser desfeita.">Excluir</button></form>
+                                </div>
+                            </div><?php endforeach;?>
+                        </div>
+                    </details>
+                </article>
+            <?php endforeach;?>
+        </div><div id="bindings-empty" class="empty-state compact" hidden><p>Nenhum professor corresponde à busca.</p></div><?php endif;?>
             </div>
         </details>
     </section>
