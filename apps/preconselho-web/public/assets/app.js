@@ -41,7 +41,7 @@ const syncSelectionCounts=()=>document.querySelectorAll('[data-selection-count]'
 document.querySelectorAll('.choice-grid input').forEach(input=>input.addEventListener('change',syncSelectionCounts));syncSelectionCounts();
 document.querySelector('#binding-form')?.addEventListener('submit',event=>{const classes=document.querySelectorAll('#class-choices input:checked').length;const disciplines=document.querySelectorAll('#discipline-choices input:checked').length;if(!classes||!disciplines){event.preventDefault();alert('Selecione ao menos uma turma e uma disciplina.')}});
 
-document.querySelectorAll('[data-card-search]').forEach(input=>input.addEventListener('input',()=>{const term=input.value.toLocaleLowerCase('pt-BR').trim();let visible=0;document.querySelectorAll(`${input.dataset.cardSearch}>article`).forEach(card=>{const show=!term||card.textContent.toLocaleLowerCase('pt-BR').includes(term);card.hidden=!show;if(show)visible++});const empty=document.querySelector('#users-empty');if(empty)empty.hidden=visible!==0}));
+document.querySelectorAll('[data-card-search]').forEach(input=>input.addEventListener('input',()=>{const term=input.value.toLocaleLowerCase('pt-BR').trim();let visible=0;document.querySelectorAll(`${input.dataset.cardSearch}>article`).forEach(card=>{const show=!term||card.textContent.toLocaleLowerCase('pt-BR').includes(term);card.hidden=!show;if(show)visible++});const empty=document.querySelector(input.dataset.emptyTarget||'#users-empty');if(empty)empty.hidden=visible!==0}));
 document.querySelectorAll('[data-close-details]').forEach(button=>button.addEventListener('click',()=>{const details=button.closest('details');if(details)details.open=false}));
 
 const reportForm=document.querySelector('[data-report-form]');

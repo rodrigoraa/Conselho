@@ -62,3 +62,11 @@
 .admin-collapsible-body{padding-top:1rem;margin-top:1rem;border-top:1px solid var(--border)}
 .compact-collapsible{margin:1rem 0}
 .compact-collapsible>summary{padding:.7rem;background:#f6f9fb;border:1px solid var(--border)}
+.admin-workspace{display:grid;gap:1rem}
+.admin-section-block{margin:0;scroll-margin-top:6rem}
+.admin-create-panel{margin:1rem 0 1.25rem;border:1px solid #cfdde6;border-radius:.6rem;background:#f7fafc;padding:.8rem}
+.admin-create-panel[open]{background:#fff}
+.admin-create-panel>summary{padding:.25rem}
+.binding-editor>form:before{content:"Editar vínculo"}
+.period-stage,.period-date-grid{grid-column:1/-1}
+@media(max-width:760px){.admin-create-panel{padding:.7rem}.admin-collapsible>summary strong{font-size:1.05rem}.period-date-grid{grid-template-columns:1fr}}
