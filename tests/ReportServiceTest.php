@@ -25,6 +25,9 @@ final class ReportServiceTest extends TestCase
     public function testAlunoDeOutraTurmaEhRecusado():void
     {$this->expectException(HttpException::class);$this->service->save(1,['versao'=>1,'possui_alunos_rav'=>'1','alunos'=>[99=>['selecionado'=>'1','motivo_rav'=>'x','dificuldades'=>'x','intervencoes'=>'x']]],2,'PROFESSOR',true,'127.0.0.1','test');}
 
+    public function testOpcoesPedagogicasDoAlunoSaoSalvas():void
+    {$this->service->save(1,['versao'=>1,'possui_alunos_rav'=>'1','alunos'=>[5=>['selecionado'=>'1','nota'=>'6.5','dificuldades'=>['LEITURA_INTERPRETACAO','OUTROS'],'dificuldades_outros'=>'Organização','intervencoes'=>['ATIVIDADES_REFORCO'],'observacao'=>'Acompanhar']]],2,'PROFESSOR',true,'127.0.0.1','test');$row=$this->db->query('SELECT * FROM relatorio_alunos WHERE aluno_externo_id=5')->fetch();self::assertSame('Leitura e interpretação; Outros: Organização',$row['dificuldades']);self::assertSame('Aplicação de atividades de reforço',$row['intervencoes']);self::assertSame(['LEITURA_INTERPRETACAO','OUTROS'],json_decode($row['dificuldades_json'],true));}
+
     public function testAprovacaoGeraHistoricoEAuditoria():void
     {$this->db->exec("UPDATE relatorios_pre_conselho SET status='ENVIADO' WHERE id=1");$this->service->review(1,true,'','Parecer',1,'127.0.0.1','test');self::assertSame('APROVADO',$this->db->query('SELECT status FROM relatorios_pre_conselho WHERE id=1')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM historico_status_relatorio')->fetchColumn());self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM auditoria')->fetchColumn());}
 

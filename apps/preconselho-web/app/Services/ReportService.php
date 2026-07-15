@@ -124,7 +124,10 @@ final class ReportService
             $grade = $fields['nota'] ?? null;
             if ($grade !== '' && $grade !== null && (!is_numeric($grade) || (float)$grade < (float)Env::get('GRADE_MIN','0') || (float)$grade > (float)Env::get('GRADE_MAX','10'))) throw new HttpException(422, 'INVALID_GRADE', 'Nota fora da escala permitida.');
             if($submit&&($grade===''||$grade===null))throw new HttpException(422,'STUDENT_GRADE_REQUIRED','Informe a nota de todos os alunos selecionados.');
-            foreach(['dificuldades','intervencoes']as$field)if($submit&&trim((string)($fields[$field]??''))==='')throw new HttpException(422,'STUDENT_DATA_REQUIRED','Preencha as dificuldades e as medidas adotadas de todos os alunos selecionados.');
+            $difficulty=$this->studentChoices($fields['dificuldades']??[],$fields['dificuldades_outros']??'',$this->difficultyOptions());
+            $measures=$this->studentChoices($fields['intervencoes']??[],$fields['intervencoes_outros']??'',$this->measureOptions());
+            if($submit&&($difficulty['summary']===''||$measures['summary']===''))throw new HttpException(422,'STUDENT_DATA_REQUIRED','Selecione as dificuldades e as medidas adotadas de todos os alunos indicados.');
+            $fields['_difficulty']=$difficulty;$fields['_measures']=$measures;
             $validated[(int)$studentId] = [$student, $fields];
         }
         return $validated;
@@ -139,8 +142,9 @@ final class ReportService
             $delete->execute([$reportId, ...$keep]);
         } else $this->repository->db->prepare('DELETE FROM relatorio_alunos WHERE relatorio_id=:id')->execute([':id'=>$reportId]);
         foreach ($validated as $studentId => [$student, $fields]) {
-            $statement = $this->repository->db->prepare("INSERT INTO relatorio_alunos(relatorio_id,aluno_externo_id,aluno_nome_snapshot,aluno_data_nascimento_snapshot,turma_externa_id,nota,motivo_rav,dificuldades,intervencoes,observacao) VALUES(:relatorio,:aluno,:nome,:nascimento,:turma,:nota,:motivo,:dificuldades,:intervencoes,:observacao) ON CONFLICT(relatorio_id,aluno_externo_id) DO UPDATE SET nota=excluded.nota,motivo_rav=excluded.motivo_rav,dificuldades=excluded.dificuldades,intervencoes=excluded.intervencoes,observacao=excluded.observacao,atualizado_em=CURRENT_TIMESTAMP");
-            $statement->execute([':relatorio'=>$reportId,':aluno'=>$studentId,':nome'=>$student['nome_completo'],':nascimento'=>$student['data_nascimento'],':turma'=>$student['id_turma'],':nota'=>($fields['nota']??'')===''?null:$fields['nota'],':motivo'=>$this->text($fields['motivo_rav']??'',2000),':dificuldades'=>$this->text($fields['dificuldades']??'',3000),':intervencoes'=>$this->text($fields['intervencoes']??'',3000),':observacao'=>$this->text($fields['observacao']??'',3000)]);
+            $difficulty=$fields['_difficulty'];$measures=$fields['_measures'];
+            $statement = $this->repository->db->prepare("INSERT INTO relatorio_alunos(relatorio_id,aluno_externo_id,aluno_nome_snapshot,aluno_data_nascimento_snapshot,turma_externa_id,nota,motivo_rav,dificuldades,dificuldades_json,dificuldades_outros,intervencoes,intervencoes_json,intervencoes_outros,observacao) VALUES(:relatorio,:aluno,:nome,:nascimento,:turma,:nota,:motivo,:dificuldades,:dificuldades_json,:dificuldades_outros,:intervencoes,:intervencoes_json,:intervencoes_outros,:observacao) ON CONFLICT(relatorio_id,aluno_externo_id) DO UPDATE SET nota=excluded.nota,motivo_rav=excluded.motivo_rav,dificuldades=excluded.dificuldades,dificuldades_json=excluded.dificuldades_json,dificuldades_outros=excluded.dificuldades_outros,intervencoes=excluded.intervencoes,intervencoes_json=excluded.intervencoes_json,intervencoes_outros=excluded.intervencoes_outros,observacao=excluded.observacao,atualizado_em=CURRENT_TIMESTAMP");
+            $statement->execute([':relatorio'=>$reportId,':aluno'=>$studentId,':nome'=>$student['nome_completo'],':nascimento'=>$student['data_nascimento'],':turma'=>$student['id_turma'],':nota'=>($fields['nota']??'')===''?null:$fields['nota'],':motivo'=>$this->text($fields['motivo_rav']??'',2000),':dificuldades'=>$difficulty['summary'],':dificuldades_json'=>json_encode($difficulty['selected'],JSON_UNESCAPED_UNICODE),':dificuldades_outros'=>$difficulty['other'],':intervencoes'=>$measures['summary'],':intervencoes_json'=>json_encode($measures['selected'],JSON_UNESCAPED_UNICODE),':intervencoes_outros'=>$measures['other'],':observacao'=>$this->text($fields['observacao']??'',3000)]);
         }
     }
 
@@ -152,4 +156,15 @@ final class ReportService
 
     private function choices(mixed $values,array $allowed):array
     {if(!is_array($values))return[];return array_values(array_unique(array_intersect($allowed,array_map('strval',$values))));}
+
+    private function studentChoices(mixed $values,mixed $other,array $options):array
+    {
+        $selected=$this->choices($values,array_keys($options));$other=$this->text($other,1000);if(!in_array('OUTROS',$selected,true))$other='';$labels=[];foreach($selected as$value){if($value==='OUTROS'){if($other!=='')$labels[]='Outros: '.$other;}else$labels[]=$options[$value];}return['selected'=>$selected,'other'=>$other,'summary'=>implode('; ',$labels)];
+    }
+
+    private function difficultyOptions():array
+    {return['DIFICULDADES_CONCEITUAIS'=>'Dificuldades conceituais e cognitivas','LEITURA_INTERPRETACAO'=>'Leitura e interpretação','RESOLUCAO_PROBLEMAS_MATEMATICOS'=>'Resolução de problemas matemáticos','ESCRITA_ORTOGRAFIA'=>'Escrita e ortografia','FALTA_HABITO_ESTUDO'=>'Falta de hábito de estudo','DESATENCAO_SALA'=>'Desatenção em sala','FALTA_COMPROMISSO_ATIVIDADES'=>'Falta de compromisso com as atividades','OUTROS'=>'Outros'];}
+
+    private function measureOptions():array
+    {return['ACOMPANHAMENTO_INDIVIDUALIZADO'=>'Acompanhamento individualizado','ATIVIDADES_REFORCO'=>'Aplicação de atividades de reforço','REUNIAO_RESPONSAVEIS'=>'Reunião com responsáveis','ENCAMINHAMENTO_COORDENACAO'=>'Encaminhamento à coordenação','AVALIACOES_DIFERENCIADAS'=>'Avaliações diferenciadas','OUTROS'=>'Outros'];}
 }
