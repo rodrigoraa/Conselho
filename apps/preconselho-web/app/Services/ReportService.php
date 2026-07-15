@@ -44,14 +44,9 @@ final class ReportService
         $db = $this->repository->db;
         $db->beginTransaction();
         try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,dificuldades_gerais=:dificuldades,medidas_adotadas=:medidas,observacoes_professor=:observacoes,observacoes_turma_json=:observacoes_turma,medidas_adotadas_json=:medidas_lista,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
+            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,possui_alunos_rav=:possui,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
             $statement->execute([
                 ':status' => $newStatus, ':possui' => $hasStudents,
-                ':dificuldades' => $this->text($data['dificuldades_gerais'] ?? '', 4000),
-                ':medidas' => $this->text($data['medidas_adotadas'] ?? '', 4000),
-                ':observacoes' => $this->text($data['observacoes_professor'] ?? '', 4000),
-                ':observacoes_turma' => json_encode($this->choices($data['observacoes_turma']??[],['ALUNOS_FALTOSOS','DIFICULDADE_APRENDIZAGEM','INDISCIPLINA','DESINTERESSE','FALTA_ACOMPANHAMENTO_FAMILIAR','PROBLEMAS_EMOCIONAIS','DIFICULDADE_SOCIALIZACAO','PROBLEMAS_SAUDE','OUTROS']),JSON_UNESCAPED_UNICODE),
-                ':medidas_lista' => json_encode($this->choices($data['medidas_lista']??[],['CONVERSA_ALUNO','REUNIAO_RESPONSAVEIS','ENCAMINHAMENTO_COORDENACAO','RECUPERACAO_REFORCO','ATIVIDADES_DIFERENCIADAS','MUDANCA_ESTRATEGIA','ACOMPANHAMENTO_INDIVIDUAL','OUTROS']),JSON_UNESCAPED_UNICODE),
                 ':id' => $id, ':versao' => $report['versao'],
             ]);
             if ($statement->rowCount() !== 1) throw new HttpException(409, 'VERSION_CONFLICT', 'Conflito de atualização.');
