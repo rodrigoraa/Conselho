@@ -1,15 +1,83 @@
 <?php declare(strict_types=1);
 namespace PreConselho\Controllers;
-use PreConselho\Integration\SecretariaApiClient;use PreConselho\Repositories\AppRepository;use PreConselho\Support\Csrf;use Shared\Exceptions\HttpException;use Shared\Http\{Request,Response};
+
+use PreConselho\Integration\SecretariaApiClient;
+use PreConselho\Repositories\AppRepository;
+use PreConselho\Services\CouncilDocumentService;
+use PreConselho\Support\Csrf;
+use Shared\Exceptions\HttpException;
+use Shared\Http\{Request,Response};
+
 final class BindingController
 {
- public function __construct(private readonly AppRepository$r,private readonly SecretariaApiClient$api){}
- public function create(Request$q):Response
- {
-  Csrf::verify($q->body['_csrf']??null);$userId=filter_var($q->body['professor_id']??null,FILTER_VALIDATE_INT);$classIds=$this->ids($q->body['turma_ids']??[]);$disciplineIds=$this->ids($q->body['disciplina_ids']??[]);if(!$userId||!$classIds||!$disciplineIds||count($classIds)>100||count($disciplineIds)>50)throw new HttpException(422,'VALIDATION_ERROR','Selecione um professor, ao menos uma turma e uma disciplina.');$professor=$this->r->professorByUser((int)$userId);if(!$professor)throw new HttpException(422,'VALIDATION_ERROR','O usuário selecionado não é um professor ativo.');$placeholders=implode(',',array_fill(0,count($disciplineIds),'?'));$s=$this->r->db->prepare("SELECT id FROM disciplinas WHERE ativo=1 AND id IN ($placeholders)");$s->execute($disciplineIds);if(count($s->fetchAll())!==count($disciplineIds))throw new HttpException(422,'VALIDATION_ERROR','Uma das disciplinas selecionadas não está disponível.');$classes=[];foreach($classIds as$classId)$classes[]=$this->api->turma($classId);
-  $this->r->db->beginTransaction();$created=0;$generated=0;try{$insert=$this->r->db->prepare('INSERT OR IGNORE INTO vinculos_professor_turma_disciplina(professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,disciplina_id)VALUES(:p,:t,:n,:a,:d)');$reports=$this->r->db->prepare("INSERT OR IGNORE INTO relatorios_pre_conselho(periodo_id,vinculo_id) SELECT id,:v FROM periodos_pre_conselho WHERE status='ABERTO'");foreach($classes as$class){foreach($disciplineIds as$discipline){$insert->execute([':p'=>$professor['id'],':t'=>$class['id'],':n'=>$class['nome_turma'],':a'=>$class['ano_letivo'],':d'=>$discipline]);if($insert->rowCount()===0)continue;$created++;$id=(int)$this->r->db->lastInsertId();$reports->execute([':v'=>$id]);$generated+=$reports->rowCount();$this->r->audit($_SESSION['user']['id'],'CRIAR','vinculos_professor_turma_disciplina',$id,null,['professor_id'=>$professor['id'],'turma_externa_id'=>$class['id'],'disciplina_id'=>$discipline],$q->ip(),$q->header('User-Agent')??'');}}$this->r->db->commit();}catch(\Throwable$e){if($this->r->db->inTransaction())$this->r->db->rollBack();throw$e;}$_SESSION['flash']=$created.' vínculo(s) criado(s). '.$generated.' relatório(s) adicionado(s) aos períodos abertos.'.($created===0?' As combinações selecionadas já existiam.':'');return Response::redirect('/admin#vinculos');
- }
- public function update(Request$q,array$params):Response{Csrf::verify($q->body['_csrf']??null);$id=(int)$params['id'];$check=$this->r->db->prepare('SELECT v.*,COUNT(r.id) relatorios FROM vinculos_professor_turma_disciplina v LEFT JOIN relatorios_pre_conselho r ON r.vinculo_id=v.id WHERE v.id=:id GROUP BY v.id');$check->execute([':id'=>$id]);$before=$check->fetch()?:throw new HttpException(404,'BINDING_NOT_FOUND','Vínculo não encontrado.');if((int)$before['relatorios']>0)throw new HttpException(422,'BINDING_IN_USE','Vínculos com relatórios só podem ser desativados.');$userId=filter_var($q->body['professor_id']??null,FILTER_VALIDATE_INT);$classId=filter_var($q->body['turma_id']??null,FILTER_VALIDATE_INT);$disciplineId=filter_var($q->body['disciplina_id']??null,FILTER_VALIDATE_INT);$professor=$userId?$this->r->professorByUser((int)$userId):null;if(!$professor||!$classId||!$disciplineId)throw new HttpException(422,'VALIDATION_ERROR','Selecione professor, turma e disciplina.');$class=$this->api->turma((int)$classId);$after=['professor_id'=>$professor['id'],'turma_externa_id'=>$class['id'],'turma_nome_snapshot'=>$class['nome_turma'],'turma_ano_letivo_snapshot'=>$class['ano_letivo'],'disciplina_id'=>$disciplineId];$this->r->db->beginTransaction();try{$this->r->db->prepare('UPDATE vinculos_professor_turma_disciplina SET professor_id=:p,turma_externa_id=:t,turma_nome_snapshot=:n,turma_ano_letivo_snapshot=:a,disciplina_id=:d,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':p'=>$after['professor_id'],':t'=>$after['turma_externa_id'],':n'=>$after['turma_nome_snapshot'],':a'=>$after['turma_ano_letivo_snapshot'],':d'=>$after['disciplina_id'],':id'=>$id]);$this->r->audit($_SESSION['user']['id'],'EDITAR','vinculos_professor_turma_disciplina',$id,$before,$after,$q->ip(),$q->header('User-Agent')??'');$this->r->db->commit();}catch(\PDOException$e){if($this->r->db->inTransaction())$this->r->db->rollBack();throw new HttpException(422,'BINDING_DUPLICATE','Este vínculo já existe.');}catch(\Throwable$e){if($this->r->db->inTransaction())$this->r->db->rollBack();throw$e;}$_SESSION['flash']='Vínculo atualizado.';return Response::redirect('/admin#vinculos-lista');}
- public function toggle(Request$q,array$params):Response{Csrf::verify($q->body['_csrf']??null);$id=(int)$params['id'];$s=$this->r->db->prepare('SELECT * FROM vinculos_professor_turma_disciplina WHERE id=:id');$s->execute([':id'=>$id]);$before=$s->fetch()?:throw new HttpException(404,'BINDING_NOT_FOUND','Vínculo não encontrado.');$active=(int)!((bool)$before['ativo']);$this->r->db->beginTransaction();try{$this->r->db->prepare('UPDATE vinculos_professor_turma_disciplina SET ativo=:ativo,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':ativo'=>$active,':id'=>$id]);$this->r->audit($_SESSION['user']['id'],$active?'ATIVAR':'DESATIVAR','vinculos_professor_turma_disciplina',$id,['ativo'=>$before['ativo']],['ativo'=>$active],$q->ip(),$q->header('User-Agent')??'');$this->r->db->commit();}catch(\Throwable$e){if($this->r->db->inTransaction())$this->r->db->rollBack();throw$e;}$_SESSION['flash']='Situação do vínculo atualizada.';return Response::redirect('/admin#vinculos-lista');}
- private function ids(mixed$value):array{if(!is_array($value))return[];$ids=[];foreach($value as$item){$id=filter_var($item,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);if($id!==false)$ids[]=(int)$id;}return array_values(array_unique($ids));}
+    public function __construct(private readonly AppRepository $repository,private readonly SecretariaApiClient $api) {}
+
+    public function create(Request $request): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);
+        $userId=filter_var($request->body['professor_id']??null,FILTER_VALIDATE_INT);
+        $classIds=$this->ids($request->body['turma_ids']??[]);
+        $shift=$this->shift($request->body['turno']??'');
+        if(!$userId||!$classIds||count($classIds)>100)throw new HttpException(422,'VALIDATION_ERROR','Selecione um professor, um turno e ao menos uma turma.');
+        $professor=$this->repository->professorByUser((int)$userId);
+        if(!$professor)throw new HttpException(422,'VALIDATION_ERROR','O usuário selecionado não é um professor ativo.');
+        $classes=[];foreach($classIds as$classId)$classes[]=$this->api->turma($classId);
+
+        $this->repository->db->beginTransaction();$created=0;
+        try{
+            $insert=$this->repository->db->prepare('INSERT OR IGNORE INTO vinculos_professor_turma(professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(:professor,:turma,:nome,:ano,:turno)');
+            foreach($classes as$class){
+                $insert->execute([':professor'=>$professor['id'],':turma'=>$class['id'],':nome'=>$class['nome_turma'],':ano'=>$class['ano_letivo'],':turno'=>$shift]);
+                if($insert->rowCount()===0)continue;
+                $created++;$id=(int)$this->repository->db->lastInsertId();
+                $this->repository->audit((int)$_SESSION['user']['id'],'CRIAR','vinculos_professor_turma',$id,null,['professor_id'=>$professor['id'],'turma_externa_id'=>$class['id'],'turno'=>$shift],$request->ip(),$request->header('User-Agent')??'');
+            }
+            $this->repository->db->commit();
+        }catch(\Throwable$exception){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$exception;}
+        $periods=$this->repository->db->prepare("SELECT id FROM periodos_pre_conselho WHERE status='ABERTO' AND turno=:turno");$periods->execute([':turno'=>$shift]);
+        foreach($periods->fetchAll(\PDO::FETCH_COLUMN)as$periodId)(new CouncilDocumentService($this->repository))->synchronizePeriod((int)$periodId);
+        $_SESSION['flash']=$created.' vínculo(s) de turma criado(s).'.($created===0?' As combinações selecionadas já existiam.':'');
+        return Response::redirect('/admin#vinculos');
+    }
+
+    public function update(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];
+        $statement=$this->repository->db->prepare('SELECT * FROM vinculos_professor_turma WHERE id=:id');$statement->execute([':id'=>$id]);
+        $before=$statement->fetch()?:throw new HttpException(404,'BINDING_NOT_FOUND','Vínculo não encontrado.');
+        $userId=filter_var($request->body['professor_id']??null,FILTER_VALIDATE_INT);$classId=filter_var($request->body['turma_id']??null,FILTER_VALIDATE_INT);$shift=$this->shift($request->body['turno']??'');
+        $professor=$userId?$this->repository->professorByUser((int)$userId):null;
+        if(!$professor||!$classId)throw new HttpException(422,'VALIDATION_ERROR','Selecione professor, turno e turma.');
+        $class=$this->api->turma((int)$classId);$after=['professor_id'=>$professor['id'],'turma_externa_id'=>$class['id'],'turma_nome_snapshot'=>$class['nome_turma'],'turma_ano_letivo_snapshot'=>$class['ano_letivo'],'turno'=>$shift];
+        $this->repository->db->beginTransaction();
+        try{
+            $this->repository->db->prepare('UPDATE vinculos_professor_turma SET professor_id=:professor,turma_externa_id=:turma,turma_nome_snapshot=:nome,turma_ano_letivo_snapshot=:ano,turno=:turno,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':professor'=>$after['professor_id'],':turma'=>$after['turma_externa_id'],':nome'=>$after['turma_nome_snapshot'],':ano'=>$after['turma_ano_letivo_snapshot'],':turno'=>$after['turno'],':id'=>$id]);
+            $this->repository->audit((int)$_SESSION['user']['id'],'EDITAR','vinculos_professor_turma',$id,$before,$after,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();
+        }catch(\PDOException$exception){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw new HttpException(422,'BINDING_DUPLICATE','Este professor já está vinculado a essa turma nesse turno.');}
+        catch(\Throwable$exception){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$exception;}
+        $_SESSION['flash']='Vínculo de turma atualizado.';return Response::redirect('/admin#vinculos');
+    }
+
+    public function toggle(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$statement=$this->repository->db->prepare('SELECT * FROM vinculos_professor_turma WHERE id=:id');$statement->execute([':id'=>$id]);
+        $before=$statement->fetch()?:throw new HttpException(404,'BINDING_NOT_FOUND','Vínculo não encontrado.');$active=(int)!((bool)$before['ativo']);
+        $this->repository->db->prepare('UPDATE vinculos_professor_turma SET ativo=:ativo,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':ativo'=>$active,':id'=>$id]);
+        $this->repository->audit((int)$_SESSION['user']['id'],$active?'ATIVAR':'DESATIVAR','vinculos_professor_turma',$id,['ativo'=>$before['ativo']],['ativo'=>$active],$request->ip(),$request->header('User-Agent')??'');
+        $_SESSION['flash']='Situação do vínculo atualizada.';return Response::redirect('/admin#vinculos');
+    }
+
+    private function shift(mixed $value): string
+    {
+        $shift=mb_strtoupper(trim((string)$value));
+        if(!in_array($shift,['MATUTINO','VESPERTINO'],true))throw new HttpException(422,'INVALID_SHIFT','Selecione o turno matutino ou vespertino.');
+        return$shift;
+    }
+
+    private function ids(mixed $value): array
+    {
+        if(!is_array($value))return[];$ids=[];
+        foreach($value as$item){$id=filter_var($item,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);if($id!==false)$ids[]=(int)$id;}
+        return array_values(array_unique($ids));
+    }
 }

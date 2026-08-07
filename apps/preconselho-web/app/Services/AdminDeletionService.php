@@ -44,18 +44,15 @@ final class AdminDeletionService
 
     public function deleteBinding(int $id, int $actorId, string $ip, string $userAgent): void
     {
-        $statement=$this->repository->db->prepare('SELECT v.*,u.nome professor_nome,d.nome disciplina_nome FROM vinculos_professor_turma_disciplina v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id JOIN disciplinas d ON d.id=v.disciplina_id WHERE v.id=:id');
+        $statement=$this->repository->db->prepare('SELECT v.*,u.nome professor_nome FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id WHERE v.id=:id');
         $statement->execute([':id'=>$id]);
         $binding=$statement->fetch()?:throw new HttpException(404,'BINDING_NOT_FOUND','Vínculo não encontrado.');
-        $reportIds=$this->reportIds('vinculo_id',$id);
-        $this->transaction(function()use($id,$actorId,$ip,$userAgent,$binding,$reportIds):void{
-            $this->deleteReports($reportIds);
-            $this->repository->db->prepare('DELETE FROM vinculos_professor_turma_disciplina WHERE id=:id')->execute([':id'=>$id]);
-            $this->repository->audit($actorId,'EXCLUIR','vinculos_professor_turma_disciplina',$id,[
+        $this->transaction(function()use($id,$actorId,$ip,$userAgent,$binding):void{
+            $this->repository->db->prepare('DELETE FROM vinculos_professor_turma WHERE id=:id')->execute([':id'=>$id]);
+            $this->repository->audit($actorId,'EXCLUIR','vinculos_professor_turma',$id,[
                 'professor'=>$binding['professor_nome'],
                 'turma'=>$binding['turma_nome_snapshot'],
-                'disciplina'=>$binding['disciplina_nome'],
-                'relatorios_excluidos'=>count($reportIds),
+                'turno'=>$binding['turno'],
             ],null,$ip,$userAgent);
         });
     }

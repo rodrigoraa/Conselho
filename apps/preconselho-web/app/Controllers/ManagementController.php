@@ -20,7 +20,7 @@ final class ManagementController
         $before=$this->repository->user($id)??throw new HttpException(404,'USER_NOT_FOUND','Usuário não encontrado.');$active=(int)!((bool)$before['ativo']);
         $this->repository->db->beginTransaction();
         try{$this->repository->db->prepare('UPDATE usuarios SET ativo=:ativo,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id')->execute([':ativo'=>$active,':id'=>$id]);$this->repository->db->prepare('UPDATE professores SET ativo=:ativo,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':ativo'=>$active,':id'=>$id]);$this->repository->audit($_SESSION['user']['id'],$active?'ATIVAR':'DESATIVAR','usuarios',$id,['ativo'=>$before['ativo']],['ativo'=>$active],$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}
-        return Response::redirect('/admin');
+        return Response::redirect('/admin#usuarios');
     }
 
     public function reopen(Request $request, array $params): Response
@@ -43,7 +43,7 @@ final class ManagementController
 
     public function deleteBinding(Request $request, array $params): Response
     {
-        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteBinding((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Vínculo e relatórios relacionados excluídos.';return Response::redirect('/admin#vinculos-lista');
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteBinding((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Vínculo de turma excluído.';return Response::redirect('/admin#vinculos');
     }
 
     public function editUser(Request $request, array $params): Response
@@ -61,7 +61,7 @@ final class ManagementController
         $this->repository->db->beginTransaction();
         try{
             if($before['perfil']==='PROFESSOR'&&$role!=='PROFESSOR'){
-                $check=$this->repository->db->prepare('SELECT COUNT(*) FROM vinculos_professor_turma_disciplina v JOIN professores p ON p.id=v.professor_id WHERE p.usuario_id=:id');$check->execute([':id'=>$id]);
+                $check=$this->repository->db->prepare('SELECT COUNT(*) FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id WHERE p.usuario_id=:id');$check->execute([':id'=>$id]);
                 if((int)$check->fetchColumn()>0)throw new HttpException(422,'PROFESSOR_IN_USE','O perfil não pode ser alterado porque este professor possui vínculos.');
                 $this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);
             }
@@ -74,12 +74,12 @@ final class ManagementController
         catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}
         if($id===(int)$_SESSION['user']['id']){$_SESSION['user']['nome']=$name;$_SESSION['user']['perfil']=$role;$_SESSION['user']['alterar_senha']=0;}
         $_SESSION['flash']='Usuário atualizado com sucesso.';
-        return Response::redirect('/admin#usuarios-lista');
+        return Response::redirect('/admin#usuarios');
     }
 
     public function deleteUser(Request $request, array $params): Response
     {
-        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];if($id===(int)$_SESSION['user']['id'])throw new HttpException(422,'SELF_DELETION','Você não pode excluir o próprio usuário.');$statement=$this->repository->db->prepare('SELECT id,nome,cpf,perfil,ativo FROM usuarios WHERE id=:id AND excluido_em IS NULL');$statement->execute([':id'=>$id]);$before=$statement->fetch()?:throw new HttpException(404,'USER_NOT_FOUND','Usuário não encontrado.');$this->repository->db->beginTransaction();try{$deletedEmail='excluido-'.$id.'-'.time().'@usuario.invalid';$this->repository->db->prepare("UPDATE usuarios SET ativo=0,email=:email,cpf=NULL,excluido_em=CURRENT_TIMESTAMP,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':email'=>$deletedEmail,':id'=>$id]);$this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);$this->repository->audit($_SESSION['user']['id'],'EXCLUIR','usuarios',$id,$before,null,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}$_SESSION['flash']='Usuário excluído com sucesso. O histórico foi preservado.';return Response::redirect('/admin#usuarios-lista');
+        Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];if($id===(int)$_SESSION['user']['id'])throw new HttpException(422,'SELF_DELETION','Você não pode excluir o próprio usuário.');$statement=$this->repository->db->prepare('SELECT id,nome,cpf,perfil,ativo FROM usuarios WHERE id=:id AND excluido_em IS NULL');$statement->execute([':id'=>$id]);$before=$statement->fetch()?:throw new HttpException(404,'USER_NOT_FOUND','Usuário não encontrado.');$this->repository->db->beginTransaction();try{$deletedEmail='excluido-'.$id.'-'.time().'@usuario.invalid';$this->repository->db->prepare("UPDATE usuarios SET ativo=0,email=:email,cpf=NULL,excluido_em=CURRENT_TIMESTAMP,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':email'=>$deletedEmail,':id'=>$id]);$this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);$this->repository->audit($_SESSION['user']['id'],'EXCLUIR','usuarios',$id,$before,null,$request->ip(),$request->header('User-Agent')??'');$this->repository->db->commit();}catch(\Throwable$e){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$e;}$_SESSION['flash']='Usuário excluído com sucesso. O histórico foi preservado.';return Response::redirect('/admin#usuarios');
     }
 
     public function audit(Request $request): Response

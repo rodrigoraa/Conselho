@@ -1,8 +1,8 @@
-# Conselho de Classe — Documento único por professor
+# Conselho de Classe — Documento coletivo da escola
 
 Monorepo PHP 8.2 com duas aplicações independentes: uma API REST que abre o banco da secretaria em modo somente leitura e o sistema MVC de pré-conselho, com banco próprio. Apenas os diretórios `public/` devem ser publicados.
 
-O fluxo principal reúne todas as turmas do professor em um único documento por período, com salvamento automático, envio completo e conferência transacional pela coordenação. A aplicação preserva os vínculos, dados históricos do fluxo anterior, reabertura administrativa justificada, auditoria e controle de acesso por perfil.
+O fluxo principal mantém um documento coletivo por período e turno. As turmas aparecem recolhidas e cada uma possui um único texto livre compartilhado pelos professores vinculados. Um professor pode posicionar o cursor em qualquer ponto — inclusive depois de um aluno mencionado no meio do relato — e acrescentar conteúdo; trechos já salvos não podem ser apagados nem substituídos. A abertura da ata é editável apenas pela coordenação e administração. Na visualização e impressão, tudo forma um único texto contínuo, enquanto o histórico preserva a autoria de cada acréscimo.
 
 ## Instalação
 
@@ -28,6 +28,6 @@ Apache: habilite `mod_rewrite`, permita `AllowOverride All` no `public/` e use `
 
 ## Fluxo
 
-O administrador cadastra usuários com nome, CPF e perfil, além de disciplinas e vínculos validados contra a API. Ao abrir um período, um registro pendente é criado para cada vínculo ativo e a interface os reúne em um documento único do professor. O professor percorre todas as turmas, salva o conjunto como rascunho e envia somente quando todas as seções possuem relato. A coordenação devolve ou aprova o documento inteiro. Aprovação e encerramento bloqueiam edição. IDs externos e snapshots preservam o histórico; a API continua sendo a fonte oficial.
+O administrador cadastra usuários com nome, CPF e perfil e vincula cada professor às suas turmas no turno matutino ou vespertino. Não é necessário cadastrar disciplina. Ao criar o período, escolhe-se o turno do conselho; na abertura, o sistema inclui somente as turmas e os professores vinculados àquele turno. Todos podem consultar o documento completo do turno, mas cada professor edita e finaliza somente suas turmas. Outros professores da mesma turma podem continuar o texto compartilhado. Coordenação e administração redigem a abertura e conferem a ata final contínua. O encerramento do período bloqueia novas edições. IDs externos e snapshots preservam o histórico; a API continua sendo a fonte oficial.
 
 Os endpoints, modelo, regras, segurança e deploy detalhado estão em `docs/`. SQLite usa `foreign_keys`, `busy_timeout` e WAL no banco local. Evite armazenamento em rede e transações longas. Para atualizar: backup, modo de manutenção, `composer install`, migrations e smoke test. Para recuperar: pare escritas, preserve o banco danificado, restaure uma cópia e execute `PRAGMA integrity_check` antes de reabrir.

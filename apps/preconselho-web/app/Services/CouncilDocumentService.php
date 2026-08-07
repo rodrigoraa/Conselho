@@ -8,187 +8,142 @@ use Throwable;
 
 final class CouncilDocumentService
 {
+    private const OPENING_TEMPLATE='No dia ___ de __________ de ______, às ______ horas, reuniram-se nas dependências da Escola Estadual São José a direção, a coordenação pedagógica e os professores do turno __________ para deliberar sobre o Conselho de Classe referente ao __________ bimestre. Foram tratados assuntos relacionados à aprendizagem dos estudantes. A diretora Claudia Regina realizou a abertura, dando as boas-vindas e agradecendo a presença de todos. A seguir, foram registradas as observações das turmas.';
+
     public function __construct(private readonly AppRepository $repository) {}
 
-    public function allowed(int $periodId, int $professorUserId, int $actorId, string $role): array
+    public function synchronizePeriod(int $periodId): void
     {
-        if ($role === 'PROFESSOR' && $professorUserId !== $actorId) {
-            throw new HttpException(403, 'FORBIDDEN', 'Acesso não permitido.');
-        }
-
-        $reports = $this->repository->documentReports($periodId, $professorUserId);
-        if ($reports === []) {
-            throw new HttpException(404, 'DOCUMENT_NOT_FOUND', 'Documento do conselho não encontrado.');
-        }
-
-        return $reports;
+        $period=$this->period($periodId);
+        if(!in_array($period['status'],['RASCUNHO','ABERTO'],true))return;
+        $db=$this->repository->db;
+        $db->prepare('INSERT OR IGNORE INTO documento_aberturas(periodo_id,texto)VALUES(:periodo,:texto)')->execute([':periodo'=>$periodId,':texto'=>$this->openingTemplate($period['turno'])]);
+        $db->prepare("INSERT OR IGNORE INTO documento_turmas(periodo_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot) SELECT :periodo,v.turma_externa_id,v.turma_nome_snapshot,v.turma_ano_letivo_snapshot FROM vinculos_professor_turma v JOIN professores pr ON pr.id=v.professor_id JOIN usuarios u ON u.id=pr.usuario_id WHERE v.turno=:turno AND v.ativo=1 AND pr.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL GROUP BY v.turma_externa_id,v.turma_nome_snapshot,v.turma_ano_letivo_snapshot")->execute([':periodo'=>$periodId,':turno'=>$period['turno']]);
+        $db->prepare("INSERT OR IGNORE INTO documento_turma_professores(documento_turma_id,professor_usuario_id) SELECT dt.id,pr.usuario_id FROM documento_turmas dt JOIN vinculos_professor_turma v ON v.turma_externa_id=dt.turma_externa_id AND v.turno=:turno JOIN professores pr ON pr.id=v.professor_id JOIN usuarios u ON u.id=pr.usuario_id WHERE dt.periodo_id=:periodo AND v.ativo=1 AND pr.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL GROUP BY dt.id,pr.usuario_id")->execute([':periodo'=>$periodId,':turno'=>$period['turno']]);
     }
 
-    public function save(
-        int $periodId,
-        int $professorUserId,
-        array $data,
-        int $actorId,
-        string $role,
-        bool $submit,
-        string $ip,
-        string $userAgent,
-        bool $silent = false,
-    ): array {
-        if ($role !== 'PROFESSOR') {
-            throw new HttpException(403, 'FORBIDDEN', 'Somente o professor pode preencher este documento.');
+    public function summaries(int $actorId,string $role): array
+    {
+        foreach($this->repository->db->query("SELECT id FROM periodos_pre_conselho WHERE status='ABERTO'")->fetchAll(\PDO::FETCH_COLUMN) as$periodId)$this->synchronizePeriod((int)$periodId);
+        if($role==='PROFESSOR'){
+            $statement=$this->repository->db->prepare("SELECT p.id periodo_id,p.nome periodo,p.ano_letivo,p.turno,p.data_fim,p.status periodo_status,(SELECT COUNT(*) FROM documento_turmas dt WHERE dt.periodo_id=p.id) total_turmas,(SELECT COUNT(*) FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario) minhas_turmas,(SELECT COUNT(*) FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario AND c.finalizado=1) finalizadas FROM periodos_pre_conselho p WHERE EXISTS(SELECT 1 FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario) ORDER BY CASE p.status WHEN 'ABERTO' THEN 0 ELSE 1 END,p.data_fim DESC,p.id DESC");
+            $statement->execute([':usuario'=>$actorId]);
+            return$statement->fetchAll();
         }
+        return$this->repository->db->query("SELECT p.id periodo_id,p.nome periodo,p.ano_letivo,p.turno,p.data_fim,p.status periodo_status,COUNT(DISTINCT dt.id) total_turmas,COUNT(DISTINCT c.professor_usuario_id) professores,COUNT(c.id) contribuicoes,COALESCE(SUM(c.finalizado),0) finalizadas FROM periodos_pre_conselho p JOIN documento_turmas dt ON dt.periodo_id=p.id LEFT JOIN documento_turma_professores c ON c.documento_turma_id=dt.id GROUP BY p.id ORDER BY CASE p.status WHEN 'ABERTO' THEN 0 ELSE 1 END,p.data_fim DESC,p.id DESC")->fetchAll();
+    }
 
-        $reports = $this->allowed($periodId, $professorUserId, $actorId, $role);
-        if ($reports[0]['periodo_status'] !== 'ABERTO') {
-            throw new HttpException(422, 'DOCUMENT_LOCKED', 'Este documento pertence a um período encerrado.');
-        }
+    public function document(int $periodId,int $actorId,string $role): array
+    {
+        $this->synchronizePeriod($periodId);
+        $period=$this->period($periodId);
+        $mine=$this->repository->db->prepare('SELECT COUNT(*) FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=:periodo AND c.professor_usuario_id=:usuario');
+        $mine->execute([':periodo'=>$periodId,':usuario'=>$actorId]);
+        if($role==='PROFESSOR'&&(int)$mine->fetchColumn()===0)throw new HttpException(403,'FORBIDDEN','Você não possui turmas neste período.');
 
-        foreach ($reports as $report) {
-            if (!in_array($report['status'], ['PENDENTE', 'RASCUNHO', 'DEVOLVIDO'], true)) {
-                throw new HttpException(422, 'DOCUMENT_LOCKED', 'O documento já foi enviado e não pode ser alterado.');
-            }
-        }
+        $statement=$this->repository->db->prepare("SELECT dt.*,up.nome atualizado_por_nome,COALESCE(mine.finalizado,0) meu_finalizado,CASE WHEN mine.id IS NULL THEN 0 ELSE 1 END minha_turma FROM documento_turmas dt LEFT JOIN usuarios up ON up.id=dt.atualizado_por LEFT JOIN documento_turma_professores mine ON mine.documento_turma_id=dt.id AND mine.professor_usuario_id=:usuario WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,dt.id");
+        $statement->execute([':usuario'=>$actorId,':periodo'=>$periodId]);
+        $classes=$statement->fetchAll();
+        if($classes===[])throw new HttpException(404,'DOCUMENT_NOT_FOUND','O documento coletivo ainda não possui turmas.');
 
-        $submitted = is_array($data['relatorios'] ?? null) ? $data['relatorios'] : [];
-        $updates = [];
-        foreach ($reports as $report) {
-            $reportId = (int)$report['id'];
-            $fields = is_array($submitted[$reportId] ?? null) ? $submitted[$reportId] : null;
-            if ($fields === null || (int)($fields['versao'] ?? 0) !== (int)$report['versao']) {
-                throw new HttpException(409, 'VERSION_CONFLICT', 'O documento foi atualizado em outra sessão. Recarregue a página.');
-            }
+        $editStatement=$this->repository->db->prepare("SELECT edit.*,u.nome autor_nome_atual FROM documento_turma_edicoes edit JOIN documento_turmas dt ON dt.id=edit.documento_turma_id LEFT JOIN usuarios u ON u.id=edit.autor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY edit.documento_turma_id,edit.id");
+        $editStatement->execute([':periodo'=>$periodId]);$editsByClass=[];
+        foreach($editStatement->fetchAll()as$edit)$editsByClass[(int)$edit['documento_turma_id']][]=$edit;
+        foreach($classes as&$class)$class['edicoes']=$editsByClass[(int)$class['id']]??[];
+        unset($class);
 
-            $narrative = $this->text($fields['relato'] ?? '', 8000);
-            if ($submit && $narrative === '') {
-                throw new HttpException(422, 'NARRATIVE_REQUIRED', 'Preencha o relato de todas as turmas antes de enviar.');
-            }
-            $updates[$reportId] = $narrative;
-        }
+        $completion=$this->repository->db->prepare("SELECT c.*,u.nome professor_nome,dt.turma_externa_id,dt.turma_nome_snapshot FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN usuarios u ON u.id=c.professor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,u.nome COLLATE NOCASE");
+        $completion->execute([':periodo'=>$periodId]);
+        $byClass=[];
+        foreach($completion->fetchAll()as$row)$byClass[(int)$row['documento_turma_id']][]=$row;
+        $openingStatement=$this->repository->db->prepare('SELECT da.*,u.nome atualizado_por_nome FROM documento_aberturas da LEFT JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$openingStatement->execute([':periodo'=>$periodId]);
+        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
+        return compact('period','classes','opening')+['conclusoes'=>$byClass];
+    }
 
-        if ($submit && date('Y-m-d') > $reports[0]['data_fim']) {
-            foreach ($reports as $report) {
-                if (!(bool)$report['liberado_fora_prazo']) {
-                    throw new HttpException(422, 'DEADLINE_EXPIRED', 'O prazo do período terminou.');
-                }
-            }
-        }
+    public function saveOpening(int $periodId,string $text,int $version,int $actorId,string $role): array
+    {
+        if(!in_array($role,['ADMIN','COORDENADOR'],true))throw new HttpException(403,'FORBIDDEN','Somente a coordenação e a administração podem editar a abertura da ata.');
+        $period=$this->period($periodId);
+        if($period['status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','A abertura só pode ser editada durante o período aberto.');
+        $text=trim($text);
+        if(mb_strlen($text)>12000)throw new HttpException(422,'TEXT_TOO_LONG','O texto de abertura excedeu o limite permitido.');
+        $statement=$this->repository->db->prepare('UPDATE documento_aberturas SET texto=:texto,versao=versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE periodo_id=:periodo AND versao=:versao');
+        $statement->execute([':texto'=>$text,':usuario'=>$actorId,':periodo'=>$periodId,':versao'=>$version]);
+        if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','A abertura foi atualizada em outra sessão. Recarregue a página.');
+        $fresh=$this->repository->db->prepare('SELECT da.versao,da.atualizado_em,u.nome atualizado_por_nome FROM documento_aberturas da JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$fresh->execute([':periodo'=>$periodId]);$saved=$fresh->fetch();
+        return['version'=>(int)$saved['versao'],'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
+    }
 
-        $newStatus = $submit ? 'ENVIADO' : 'RASCUNHO';
-        $db = $this->repository->db;
-        $db->beginTransaction();
-        try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET observacoes_professor=:relato,status=:status,enviado_em=CASE WHEN :status='ENVIADO' THEN CURRENT_TIMESTAMP ELSE enviado_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND versao=:versao");
-            $versions = [];
-            foreach ($reports as $report) {
-                $reportId = (int)$report['id'];
-                $statement->execute([
-                    ':relato' => $updates[$reportId],
-                    ':status' => $newStatus,
-                    ':id' => $reportId,
-                    ':versao' => $report['versao'],
-                ]);
-                if ($statement->rowCount() !== 1) {
-                    throw new HttpException(409, 'VERSION_CONFLICT', 'Conflito ao salvar o documento.');
-                }
-                $versions[$reportId] = (int)$report['versao'] + 1;
+    public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent): array
+    {
+        if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem complementar as turmas.');
+        $content=str_replace(["\r\n","\r"],"\n",$content);
+        if(mb_strlen($content)>60000)throw new HttpException(422,'TEXT_TOO_LONG','O texto da turma excedeu o limite permitido.');
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId);
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto para preenchimento.');
+        if((bool)$row['finalizado'])throw new HttpException(422,'CLASS_FINALIZED','Reabra sua participação nesta turma antes de editar.');
+        if($version!==(int)$row['versao'])throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
+        $oldContent=str_replace(["\r\n","\r"],"\n",(string)$row['conteudo']);
+        if($content===$oldContent)return['version'=>(int)$row['versao'],'saved_at'=>date('H:i',strtotime((string)$row['atualizado_em'])),'updated_by'=>null];
+        $insertions=$this->insertionChunks($oldContent,$content);
+        if($insertions===null)throw new HttpException(422,'SAVED_TEXT_PROTECTED','O texto já salvo não pode ser apagado nem substituído. Use Desfazer ou recarregue a página e apenas acrescente conteúdo.');
 
-                if (!$silent) {
-                    $this->history($reportId, $report['status'], $newStatus, $actorId, null);
-                }
-            }
-
-            if (!$silent) {
-                $this->repository->audit(
-                    $actorId,
-                    $submit ? 'ENVIAR_DOCUMENTO' : 'SALVAR_DOCUMENTO',
-                    'documento_conselho',
-                    $periodId,
-                    ['professor_usuario_id' => $professorUserId],
-                    ['status' => $newStatus, 'turmas' => count($reports)],
-                    $ip,
-                    $userAgent,
-                );
-            }
+        $db=$this->repository->db;$db->beginTransaction();
+        try{
+            $statement=$db->prepare('UPDATE documento_turmas SET conteudo=:conteudo,versao=versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:turma AND periodo_id=:periodo AND versao=:versao');
+            $statement->execute([':conteudo'=>$content,':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId,':versao'=>$version]);
+            if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
+            $author=$db->prepare('SELECT nome FROM usuarios WHERE id=:id');$author->execute([':id'=>$actorId]);$authorName=(string)$author->fetchColumn();
+            $fresh=$db->prepare('SELECT versao,atualizado_em FROM documento_turmas WHERE id=:turma');$fresh->execute([':turma'=>$classDocumentId]);$saved=$fresh->fetch();
+            $history=$db->prepare('INSERT INTO documento_turma_edicoes(documento_turma_id,autor_usuario_id,autor_nome_snapshot,texto_inserido,posicao,versao_resultante)VALUES(:turma,:usuario,:autor,:texto,:posicao,:versao)');
+            foreach($insertions as$insertion)$history->execute([':turma'=>$classDocumentId,':usuario'=>$actorId,':autor'=>$authorName,':texto'=>$insertion['text'],':posicao'=>$insertion['position'],':versao'=>$saved['versao']]);
             $db->commit();
-            return $versions;
-        } catch (Throwable $exception) {
-            if ($db->inTransaction()) $db->rollBack();
-            throw $exception;
-        }
+            return['version'=>(int)$saved['versao'],'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$authorName];
+        }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
 
-    public function review(
-        int $periodId,
-        int $professorUserId,
-        bool $approve,
-        string $reason,
-        string $opinion,
-        int $actorId,
-        string $ip,
-        string $userAgent,
-    ): void {
-        $reports = $this->allowed($periodId, $professorUserId, $actorId, 'COORDENADOR');
-        if ($reports[0]['periodo_status'] === 'ENCERRADO') {
-            throw new HttpException(422, 'DOCUMENT_LOCKED', 'O período está encerrado.');
-        }
-        foreach ($reports as $report) {
-            if ($report['status'] !== 'ENVIADO') {
-                throw new HttpException(422, 'INVALID_STATUS', 'O documento completo ainda não está disponível para conferência.');
-            }
-        }
-        if (!$approve && trim($reason) === '') {
-            throw new HttpException(422, 'RETURN_REASON_REQUIRED', 'A orientação para devolução é obrigatória.');
-        }
-
-        $newStatus = $approve ? 'APROVADO' : 'DEVOLVIDO';
-        $reason = $this->text($reason, 2000);
-        $opinion = $this->text($opinion, 4000);
-        $db = $this->repository->db;
-        $db->beginTransaction();
-        try {
-            $statement = $db->prepare("UPDATE relatorios_pre_conselho SET status=:status,parecer_coordenacao=:parecer,aprovado_em=CASE WHEN :status='APROVADO' THEN CURRENT_TIMESTAMP END,aprovado_por=CASE WHEN :status='APROVADO' THEN :usuario END,devolvido_em=CASE WHEN :status='DEVOLVIDO' THEN CURRENT_TIMESTAMP ELSE devolvido_em END,versao=versao+1,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id AND status='ENVIADO'");
-            foreach ($reports as $report) {
-                $statement->execute([
-                    ':status' => $newStatus,
-                    ':parecer' => $opinion,
-                    ':usuario' => $actorId,
-                    ':id' => $report['id'],
-                ]);
-                if ($statement->rowCount() !== 1) {
-                    throw new HttpException(409, 'VERSION_CONFLICT', 'O documento foi alterado durante a conferência.');
-                }
-                $this->history((int)$report['id'], 'ENVIADO', $newStatus, $actorId, $approve ? null : $reason);
-            }
-            $this->repository->audit(
-                $actorId,
-                $newStatus.'_DOCUMENTO',
-                'documento_conselho',
-                $periodId,
-                ['professor_usuario_id' => $professorUserId, 'status' => 'ENVIADO'],
-                ['status' => $newStatus, 'parecer' => $opinion],
-                $ip,
-                $userAgent,
-            );
+    public function finalizeClass(int $periodId,int $classDocumentId,int $actorId,string $role,bool $finalize,string $ip,string $userAgent): void
+    {
+        if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem finalizar sua participação.');
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId);
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto.');
+        if($finalize&&trim((string)$row['conteudo'])==='')throw new HttpException(422,'CONTENT_REQUIRED','Escreva no texto da turma antes de finalizar.');
+        $db=$this->repository->db;$db->beginTransaction();
+        try{
+            $db->prepare('UPDATE documento_turma_professores SET finalizado=:finalizado,finalizado_em=CASE WHEN :finalizado=1 THEN CURRENT_TIMESTAMP ELSE NULL END,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:usuario')->execute([':finalizado'=>$finalize?1:0,':turma'=>$classDocumentId,':usuario'=>$actorId]);
+            $this->repository->audit($actorId,$finalize?'FINALIZAR_TURMA':'REABRIR_TURMA','documento_turmas',$classDocumentId,['finalizado'=>(bool)$row['finalizado']],['finalizado'=>$finalize],$ip,$userAgent);
             $db->commit();
-        } catch (Throwable $exception) {
-            if ($db->inTransaction()) $db->rollBack();
-            throw $exception;
-        }
+        }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
 
-    private function history(int $reportId, string $old, string $new, int $userId, ?string $reason): void
+    private function editableClass(int $periodId,int $classDocumentId,int $actorId): array
     {
-        $statement = $this->repository->db->prepare('INSERT INTO historico_status_relatorio(relatorio_id,status_anterior,status_novo,usuario_id,justificativa) VALUES(:relatorio,:anterior,:novo,:usuario,:justificativa)');
-        $statement->execute([':relatorio'=>$reportId, ':anterior'=>$old, ':novo'=>$new, ':usuario'=>$userId, ':justificativa'=>$reason]);
+        $statement=$this->repository->db->prepare('SELECT dt.*,c.finalizado,p.status periodo_status FROM documento_turmas dt JOIN documento_turma_professores c ON c.documento_turma_id=dt.id AND c.professor_usuario_id=:usuario JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE dt.id=:turma AND dt.periodo_id=:periodo');
+        $statement->execute([':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId]);
+        return$statement->fetch()?:throw new HttpException(403,'FORBIDDEN','Você não leciona nesta turma.');
     }
 
-    private function text(mixed $value, int $max): string
+    private function insertionChunks(string $old,string $new): ?array
     {
-        $value = trim((string)$value);
-        if (mb_strlen($value) > $max) {
-            throw new HttpException(422, 'TEXT_TOO_LONG', 'Um relato excedeu o limite permitido.');
+        $oldChars=mb_str_split($old);$newChars=mb_str_split($new);$oldIndex=0;$newIndex=0;$insertions=[];$oldLength=count($oldChars);$newLength=count($newChars);
+        while($newIndex<$newLength){
+            if($oldIndex<$oldLength&&$newChars[$newIndex]===$oldChars[$oldIndex]){$oldIndex++;$newIndex++;continue;}
+            $position=$oldIndex;$text='';
+            while($newIndex<$newLength&&($oldIndex>=$oldLength||$newChars[$newIndex]!==$oldChars[$oldIndex])){$text.=$newChars[$newIndex];$newIndex++;}
+            if($text!=='')$insertions[]=['position'=>$position,'text'=>$text];
         }
-        return $value;
+        return$oldIndex===$oldLength?$insertions:null;
+    }
+
+    private function period(int $periodId): array
+    {
+        $statement=$this->repository->db->prepare('SELECT * FROM periodos_pre_conselho WHERE id=:id');$statement->execute([':id'=>$periodId]);
+        return$statement->fetch()?:throw new HttpException(404,'PERIOD_NOT_FOUND','Período não encontrado.');
+    }
+
+    private function openingTemplate(string $shift): string
+    {
+        return str_replace('turno __________','turno '.mb_strtolower($shift),self::OPENING_TEMPLATE);
     }
 }

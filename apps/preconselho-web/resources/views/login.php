@@ -32,7 +32,7 @@ ob_start();
 
         <div class="panel-footer"><small>O acesso de professores e demais usuários é feito somente pelo CPF cadastrado.</small></div>
         <div class="login-assistance">
-            <div><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7.5-1 2 2 3-4"/></svg><span>Professor preenche todas as turmas em um documento.</span></div>
+            <div><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7.5-1 2 2 3-4"/></svg><span>Professores colaboram no mesmo documento por turma.</span></div>
             <div><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.9 8.2 7 10 4.1-1.8 7-5.4 7-10V6l-7-3Zm-2 9 2 2 3-4"/></svg><span>Coordenação confere e acompanha os envios.</span></div>
         </div>
     </section>
