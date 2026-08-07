@@ -2,7 +2,7 @@
 
 Monorepo PHP 8.2 com duas aplicações independentes: uma API REST que abre o banco da secretaria em modo somente leitura e o sistema MVC de pré-conselho, com banco próprio. Apenas os diretórios `public/` devem ser publicados.
 
-O fluxo principal mantém um documento coletivo por período e turno. As turmas aparecem recolhidas e cada uma possui um único texto livre compartilhado pelos professores vinculados. Um professor pode posicionar o cursor em qualquer ponto, acrescentar conteúdo e corrigir ou apagar somente os próprios trechos; o texto dos colegas permanece protegido. Ao finalizar a turma, sua edição fica bloqueada até que a coordenação ou administração a libere novamente. A abertura da ata é editável apenas pela coordenação e administração. Na visualização e impressão, tudo forma um único texto contínuo, enquanto o sistema preserva a autoria dos trechos.
+O fluxo principal mantém um documento coletivo por período e turno. As turmas aparecem recolhidas e cada uma possui um único texto livre compartilhado pelos professores vinculados, pela coordenação e pela administração. Um bloqueio temporário reserva a turma para apenas um editor por vez e expira após aproximadamente um minuto de inatividade. Professores podem corrigir ou apagar somente os próprios trechos; coordenação e administração podem alterar qualquer parte do texto. Ao finalizar a turma, a edição do professor fica bloqueada até que a coordenação ou administração a libere novamente. As turmas são exibidas e consolidadas do 1º Ano do Ensino Fundamental ao 3º Ano do Ensino Médio, com nomes padronizados. A abertura da ata é editável apenas pela coordenação e administração.
 
 ## Instalação
 

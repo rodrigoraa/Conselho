@@ -22,7 +22,7 @@ final class CouncilDocumentServiceTest extends TestCase
         $migrations=glob(dirname(__DIR__).'/apps/preconselho-web/database/migrations/*.sql')?:[];sort($migrations);
         foreach($migrations as$migration)$this->db->exec((string)file_get_contents($migration));
         $hash=password_hash('interno',PASSWORD_DEFAULT);
-        $this->db->exec("INSERT INTO usuarios(id,nome,email,senha_hash,perfil)VALUES(1,'Coordenação','c@test','$hash','COORDENADOR'),(2,'Professor Um','p1@test','$hash','PROFESSOR'),(3,'Professor Dois','p2@test','$hash','PROFESSOR');INSERT INTO professores(id,usuario_id)VALUES(1,2),(2,3);INSERT INTO vinculos_professor_turma(id,professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(1,1,10,'1º ano',2026,'MATUTINO'),(2,2,10,'1º ano',2026,'MATUTINO'),(3,1,20,'2º ano',2026,'MATUTINO'),(4,2,30,'3º ano',2026,'VESPERTINO');INSERT INTO periodos_pre_conselho(id,nome,ano_letivo,etapa,data_inicio,data_fim,status,criado_por,turno)VALUES(1,'3º Bimestre',2026,'3º','2020-01-01','2099-12-31','ABERTO',1,'MATUTINO')");
+        $this->db->exec("INSERT INTO usuarios(id,nome,email,senha_hash,perfil)VALUES(1,'Coordenação','c@test','$hash','COORDENADOR'),(2,'Professor Um','p1@test','$hash','PROFESSOR'),(3,'Professor Dois','p2@test','$hash','PROFESSOR'),(4,'Administração','a@test','$hash','ADMIN');INSERT INTO professores(id,usuario_id)VALUES(1,2),(2,3);INSERT INTO vinculos_professor_turma(id,professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(1,1,10,'1º ano',2026,'MATUTINO'),(2,2,10,'1º ano',2026,'MATUTINO'),(3,1,20,'2º ano',2026,'MATUTINO'),(4,2,30,'3º ano',2026,'VESPERTINO');INSERT INTO periodos_pre_conselho(id,nome,ano_letivo,etapa,data_inicio,data_fim,status,criado_por,turno)VALUES(1,'3º Bimestre',2026,'3º','2020-01-01','2099-12-31','ABERTO',1,'MATUTINO')");
         $this->service=new CouncilDocumentService(new AppRepository($this->db));
         $this->service->synchronizePeriod(1);
     }
@@ -107,6 +107,37 @@ final class CouncilDocumentServiceTest extends TestCase
         catch(HttpException$exception){self::assertSame(409,$exception->status);}
     }
 
+    public function testBloqueioTemporarioImpedeDoisUsuariosDeEditaremAMesmaTurma(): void
+    {
+        $classId=$this->classId(10);
+        $first=$this->service->acquireClassLock(1,$classId,2,'PROFESSOR');
+        self::assertTrue($first['acquired']);self::assertNotEmpty($first['token']);
+        $second=$this->service->acquireClassLock(1,$classId,3,'PROFESSOR');
+        self::assertFalse($second['acquired']);self::assertSame('Professor Um',$second['locked_by']);
+        try{$this->service->saveClass(1,$classId,'Texto.',1,2,'PROFESSOR','127.0.0.1','test',[],'token-incorreto');self::fail('Um token inválido não deveria salvar.');}
+        catch(HttpException$exception){self::assertSame(423,$exception->status);}
+        $this->service->saveClass(1,$classId,'Texto.',1,2,'PROFESSOR','127.0.0.1','test',[],$first['token']);
+        $this->service->releaseClassLock(1,$classId,2,$first['token']);
+        $released=$this->service->acquireClassLock(1,$classId,3,'PROFESSOR');
+        self::assertTrue($released['acquired']);
+        $this->db->exec("UPDATE documento_turma_bloqueios SET expira_em='2000-01-01 00:00:00' WHERE documento_turma_id=$classId");
+        $afterExpiration=$this->service->acquireClassLock(1,$classId,2,'PROFESSOR');
+        self::assertTrue($afterExpiration['acquired']);
+    }
+
+    public function testCoordenacaoEAdministracaoPodemEscreverEmQualquerTurma(): void
+    {
+        $classId=$this->classId(20);
+        $coordLock=$this->service->acquireClassLock(1,$classId,1,'COORDENADOR');
+        $this->service->saveClass(1,$classId,'Registro da coordenação.',1,1,'COORDENADOR','127.0.0.1','test',[],$coordLock['token']);
+        $this->service->releaseClassLock(1,$classId,1,$coordLock['token']);
+        $adminLock=$this->service->acquireClassLock(1,$classId,4,'ADMIN');
+        $replacement='Registro revisado pela administração.';
+        $this->service->saveClass(1,$classId,$replacement,2,4,'ADMIN','127.0.0.1','test',[['start'=>0,'delete'=>mb_strlen('Registro da coordenação.'),'insert'=>$replacement]],$adminLock['token']);
+        self::assertSame($replacement,(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
+        self::assertSame([4],array_map('intval',$this->db->query("SELECT DISTINCT autor_usuario_id FROM documento_turma_segmentos WHERE documento_turma_id=$classId ORDER BY autor_usuario_id")->fetchAll(PDO::FETCH_COLUMN)));
+    }
+
     public function testFinalizacaoEIndividualPorProfessorETurma(): void
     {
         $classId=$this->classId(10);
@@ -138,8 +169,8 @@ final class CouncilDocumentServiceTest extends TestCase
         $_SESSION['user']=['id'=>3,'nome'=>'Professor Dois','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/documentos/1';
         $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
         $html=$view->render('document',['document'=>$this->service->document(1,3,'PROFESSOR'),'period'=>1,'title'=>'Documento coletivo']);
-        self::assertStringContainsString('Turma 1º ano',$html);
-        self::assertStringContainsString('Turma 2º ano',$html);
+        self::assertStringContainsString('1º Ano - Ensino Fundamental',$html);
+        self::assertStringContainsString('2º Ano - Ensino Fundamental',$html);
         self::assertSame(1,substr_count($html,'data-shared-content'));
         self::assertStringContainsString('Texto coletivo da turma',$html);
         self::assertStringContainsString('>Finalizar turma</button>',$html);
@@ -158,11 +189,12 @@ final class CouncilDocumentServiceTest extends TestCase
         $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
         $html=$view->render('document',['document'=>$this->service->document(1,1,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
         self::assertStringContainsString('data-opening-content',$html);
-        self::assertStringContainsString('Na turma 1º ano, Os estudantes avançaram nas aprendizagens.',$html);
+        self::assertStringContainsString('1º Ano - Ensino Fundamental: Os estudantes avançaram nas aprendizagens.',$html);
         self::assertStringContainsString('Professor Um',$html);
         self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('Os estudantes avançaram nas aprendizagens.',$html);
-        self::assertStringNotContainsString('data-shared-content',$html);
+        self::assertSame(2,substr_count($html,'data-shared-content'));
+        self::assertStringContainsString('Você pode escrever nesta turma sem precisar de vínculo.',$html);
         self::assertSame(1,substr_count($html,'data-final-narrative'));
     }
 

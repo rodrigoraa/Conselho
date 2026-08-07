@@ -3,11 +3,13 @@
 namespace PreConselho\Services;
 
 use PreConselho\Repositories\AppRepository;
+use PreConselho\Support\CouncilClass;
 use Shared\Exceptions\HttpException;
 use Throwable;
 
 final class CouncilDocumentService
 {
+    private const LOCK_SECONDS=60;
     private const OPENING_TEMPLATE='No dia ___ de __________ de ______, às ______ horas, reuniram-se nas dependências da Escola Estadual São José a direção, a coordenação pedagógica e os professores do turno __________ para deliberar sobre o Conselho de Classe referente ao __________ bimestre. Foram tratados assuntos relacionados à aprendizagem dos estudantes. A diretora Claudia Regina realizou a abertura, dando as boas-vindas e agradecendo a presença de todos. A seguir, foram registradas as observações das turmas.';
 
     public function __construct(private readonly AppRepository $repository) {}
@@ -45,6 +47,8 @@ final class CouncilDocumentService
         $statement->execute([':usuario'=>$actorId,':periodo'=>$periodId]);
         $classes=$statement->fetchAll();
         if($classes===[])throw new HttpException(404,'DOCUMENT_NOT_FOUND','O documento coletivo ainda não possui turmas.');
+        foreach($classes as&$class){$identity=CouncilClass::identify((string)$class['turma_nome_snapshot']);$class['nome_conselho']=$identity['name'];$class['ordem_conselho']=$identity['order'];}unset($class);
+        usort($classes,static fn(array$a,array$b):int=>[$a['ordem_conselho'],mb_strtolower((string)$a['turma_nome_snapshot']),(int)$a['id']]<=>[$b['ordem_conselho'],mb_strtolower((string)$b['turma_nome_snapshot']),(int)$b['id']]);
 
         $editStatement=$this->repository->db->prepare("SELECT edit.*,u.nome autor_nome_atual FROM documento_turma_edicoes edit JOIN documento_turmas dt ON dt.id=edit.documento_turma_id LEFT JOIN usuarios u ON u.id=edit.autor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY edit.documento_turma_id,edit.id");
         $editStatement->execute([':periodo'=>$periodId]);$editsByClass=[];
@@ -52,7 +56,9 @@ final class CouncilDocumentService
         $segmentStatement=$this->repository->db->prepare("SELECT segment.*,u.nome autor_nome_atual FROM documento_turma_segmentos segment JOIN documento_turmas dt ON dt.id=segment.documento_turma_id LEFT JOIN usuarios u ON u.id=segment.autor_usuario_id WHERE dt.periodo_id=:periodo AND segment.conteudo<>'' ORDER BY segment.documento_turma_id,segment.ordem");
         $segmentStatement->execute([':periodo'=>$periodId]);$segmentsByClass=[];
         foreach($segmentStatement->fetchAll()as$segment)$segmentsByClass[(int)$segment['documento_turma_id']][]=$segment;
-        foreach($classes as&$class){$class['edicoes']=$editsByClass[(int)$class['id']]??[];$class['segmentos']=$segmentsByClass[(int)$class['id']]??[];}
+        $lockStatement=$this->repository->db->prepare('SELECT lock.* FROM documento_turma_bloqueios lock JOIN documento_turmas dt ON dt.id=lock.documento_turma_id WHERE dt.periodo_id=:periodo AND lock.expira_em>CURRENT_TIMESTAMP');$lockStatement->execute([':periodo'=>$periodId]);$locksByClass=[];
+        foreach($lockStatement->fetchAll()as$lock)$locksByClass[(int)$lock['documento_turma_id']]=$lock;
+        foreach($classes as&$class){$class['edicoes']=$editsByClass[(int)$class['id']]??[];$class['segmentos']=$segmentsByClass[(int)$class['id']]??[];$class['bloqueio']=$locksByClass[(int)$class['id']]??null;}
         unset($class);
 
         $completion=$this->repository->db->prepare("SELECT c.*,u.nome professor_nome,dt.turma_externa_id,dt.turma_nome_snapshot FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN usuarios u ON u.id=c.professor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,u.nome COLLATE NOCASE");
@@ -78,14 +84,38 @@ final class CouncilDocumentService
         return['version'=>(int)$saved['versao'],'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
     }
 
-    public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent,array $operations=[]): array
+    public function acquireClassLock(int $periodId,int $classDocumentId,int $actorId,string $role,string $currentToken=''): array
     {
-        if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem complementar as turmas.');
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId,$role);
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto para preenchimento.');
+        if($role==='PROFESSOR'&&(bool)$row['finalizado'])throw new HttpException(422,'CLASS_FINALIZED','A coordenação ou administração precisa liberar uma nova edição.');
+        $db=$this->repository->db;$db->beginTransaction();
+        try{
+            $author=$db->prepare('SELECT nome FROM usuarios WHERE id=:id');$author->execute([':id'=>$actorId]);$authorName=(string)$author->fetchColumn();
+            $requestedToken=$currentToken!==''?$currentToken:bin2hex(random_bytes(32));$expires=gmdate('Y-m-d H:i:s',time()+self::LOCK_SECONDS);
+            $upsert=$db->prepare('INSERT INTO documento_turma_bloqueios(documento_turma_id,usuario_id,usuario_nome_snapshot,token,expira_em)VALUES(:turma,:usuario,:nome,:token,:expira) ON CONFLICT(documento_turma_id) DO UPDATE SET usuario_id=excluded.usuario_id,usuario_nome_snapshot=excluded.usuario_nome_snapshot,token=CASE WHEN documento_turma_bloqueios.usuario_id=excluded.usuario_id THEN documento_turma_bloqueios.token ELSE excluded.token END,expira_em=excluded.expira_em,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_bloqueios.expira_em<=CURRENT_TIMESTAMP OR documento_turma_bloqueios.usuario_id=excluded.usuario_id');
+            $upsert->execute([':turma'=>$classDocumentId,':usuario'=>$actorId,':nome'=>$authorName,':token'=>$requestedToken,':expira'=>$expires]);
+            $statement=$db->prepare('SELECT * FROM documento_turma_bloqueios WHERE documento_turma_id=:turma');$statement->execute([':turma'=>$classDocumentId]);$lock=$statement->fetch();$db->commit();
+            if((int)$lock['usuario_id']!==$actorId)return['acquired'=>false,'locked_by'=>$lock['usuario_nome_snapshot'],'expires_at'=>$lock['expira_em']];
+            return['acquired'=>true,'token'=>$lock['token'],'locked_by'=>$authorName,'expires_at'=>$lock['expira_em'],'ttl'=>self::LOCK_SECONDS];
+        }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
+    }
+
+    public function releaseClassLock(int $periodId,int $classDocumentId,int $actorId,string $token): void
+    {
+        $statement=$this->repository->db->prepare('DELETE FROM documento_turma_bloqueios WHERE documento_turma_id=:turma AND usuario_id=:usuario AND token=:token AND EXISTS(SELECT 1 FROM documento_turmas dt WHERE dt.id=:turma AND dt.periodo_id=:periodo)');
+        $statement->execute([':turma'=>$classDocumentId,':usuario'=>$actorId,':token'=>$token,':periodo'=>$periodId]);
+    }
+
+    public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent,array $operations=[],string $lockToken=''): array
+    {
+        if(!in_array($role,['PROFESSOR','COORDENADOR','ADMIN'],true))throw new HttpException(403,'FORBIDDEN','Você não pode editar as turmas.');
         $content=str_replace(["\r\n","\r"],"\n",$content);
         if(mb_strlen($content)>60000)throw new HttpException(422,'TEXT_TOO_LONG','O texto da turma excedeu o limite permitido.');
-        $row=$this->editableClass($periodId,$classDocumentId,$actorId);
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId,$role);
         if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto para preenchimento.');
-        if((bool)$row['finalizado'])throw new HttpException(422,'CLASS_FINALIZED','Reabra sua participação nesta turma antes de editar.');
+        if($role==='PROFESSOR'&&(bool)$row['finalizado'])throw new HttpException(422,'CLASS_FINALIZED','A coordenação ou administração precisa liberar uma nova edição.');
+        if($lockToken!=='')$this->refreshClassLock($classDocumentId,$actorId,$lockToken);
         if($version!==(int)$row['versao'])throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
         $oldContent=str_replace(["\r\n","\r"],"\n",(string)$row['conteudo']);
         if($content===$oldContent)return['version'=>(int)$row['versao'],'saved_at'=>date('H:i',strtotime((string)$row['atualizado_em'])),'updated_by'=>null];
@@ -96,7 +126,7 @@ final class CouncilDocumentService
             if($insertions===null)throw new HttpException(422,'SAVED_TEXT_PROTECTED','Você só pode alterar os trechos que escreveu. Recarregue a página e tente novamente.');
             $offset=0;foreach($insertions as$insertion){$operations[]=['start'=>$insertion['position']+$offset,'delete'=>0,'insert'=>$insertion['text']];$offset+=mb_strlen($insertion['text']);}
         }
-        [$newSegments,$insertions]=$this->applyOwnedOperations($segments,$operations,$actorId,$authorName,$content);
+        [$newSegments,$insertions]=$this->applyOwnedOperations($segments,$operations,$actorId,$authorName,$content,in_array($role,['ADMIN','COORDENADOR'],true));
 
         $db=$this->repository->db;$db->beginTransaction();
         try{
@@ -118,12 +148,13 @@ final class CouncilDocumentService
     {
         if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem finalizar sua participação.');
         if(!$finalize)throw new HttpException(403,'REOPEN_REQUIRES_COORDINATION','Somente a coordenação ou a administração pode liberar uma nova edição.');
-        $row=$this->editableClass($periodId,$classDocumentId,$actorId);
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId,$role);
         if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto.');
         if($finalize&&trim((string)$row['conteudo'])==='')throw new HttpException(422,'CONTENT_REQUIRED','Escreva no texto da turma antes de finalizar.');
         $db=$this->repository->db;$db->beginTransaction();
         try{
             $db->prepare('UPDATE documento_turma_professores SET finalizado=:finalizado,finalizado_em=CASE WHEN :finalizado=1 THEN CURRENT_TIMESTAMP ELSE NULL END,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:usuario')->execute([':finalizado'=>$finalize?1:0,':turma'=>$classDocumentId,':usuario'=>$actorId]);
+            $db->prepare('DELETE FROM documento_turma_bloqueios WHERE documento_turma_id=:turma AND usuario_id=:usuario')->execute([':turma'=>$classDocumentId,':usuario'=>$actorId]);
             $this->repository->audit($actorId,$finalize?'FINALIZAR_TURMA':'REABRIR_TURMA','documento_turmas',$classDocumentId,['finalizado'=>(bool)$row['finalizado']],['finalizado'=>$finalize],$ip,$userAgent);
             $db->commit();
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
@@ -144,11 +175,24 @@ final class CouncilDocumentService
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
 
-    private function editableClass(int $periodId,int $classDocumentId,int $actorId): array
+    private function editableClass(int $periodId,int $classDocumentId,int $actorId,string $role): array
     {
+        if(in_array($role,['ADMIN','COORDENADOR'],true)){
+            $statement=$this->repository->db->prepare('SELECT dt.*,0 finalizado,p.status periodo_status FROM documento_turmas dt JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE dt.id=:turma AND dt.periodo_id=:periodo');
+            $statement->execute([':turma'=>$classDocumentId,':periodo'=>$periodId]);
+            return$statement->fetch()?:throw new HttpException(404,'CLASS_NOT_FOUND','Turma não encontrada neste documento.');
+        }
+        if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Você não pode editar esta turma.');
         $statement=$this->repository->db->prepare('SELECT dt.*,c.finalizado,p.status periodo_status FROM documento_turmas dt JOIN documento_turma_professores c ON c.documento_turma_id=dt.id AND c.professor_usuario_id=:usuario JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE dt.id=:turma AND dt.periodo_id=:periodo');
         $statement->execute([':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId]);
         return$statement->fetch()?:throw new HttpException(403,'FORBIDDEN','Você não leciona nesta turma.');
+    }
+
+    private function refreshClassLock(int $classDocumentId,int $actorId,string $token): void
+    {
+        $expires=gmdate('Y-m-d H:i:s',time()+self::LOCK_SECONDS);$statement=$this->repository->db->prepare('UPDATE documento_turma_bloqueios SET expira_em=:expira,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND usuario_id=:usuario AND token=:token AND expira_em>CURRENT_TIMESTAMP');
+        $statement->execute([':expira'=>$expires,':turma'=>$classDocumentId,':usuario'=>$actorId,':token'=>$token]);
+        if($statement->rowCount()!==1)throw new HttpException(423,'CLASS_LOCK_REQUIRED','O bloqueio de edição expirou ou pertence a outro usuário. Reabra a turma para continuar.');
     }
 
     private function segmentsForClass(int $classDocumentId,string $oldContent): array
@@ -160,7 +204,7 @@ final class CouncilDocumentService
         return$oldContent===''?[]:[['autor_usuario_id'=>null,'autor_nome_snapshot'=>'Conteúdo anterior ao controle por trecho','conteudo'=>$oldContent]];
     }
 
-    private function applyOwnedOperations(array $segments,array $operations,int $actorId,string $authorName,string $expectedContent): array
+    private function applyOwnedOperations(array $segments,array $operations,int $actorId,string $authorName,string $expectedContent,bool $canEditAll=false): array
     {
         if(count($operations)>2000)throw new HttpException(422,'TOO_MANY_EDITS','Foram feitas alterações demais de uma só vez. Recarregue a página e tente novamente.');
         $characters=[];$owners=[];$names=[];
@@ -170,7 +214,7 @@ final class CouncilDocumentService
             if(!is_array($operation)||!isset($operation['start'],$operation['delete'])||!array_key_exists('insert',$operation))throw new HttpException(422,'INVALID_EDIT','A edição enviada é inválida. Recarregue a página.');
             $start=filter_var($operation['start'],FILTER_VALIDATE_INT);$delete=filter_var($operation['delete'],FILTER_VALIDATE_INT);$insert=str_replace(["\r\n","\r"],"\n",(string)$operation['insert']);
             if($start===false||$delete===false||$start<0||$delete<0||$start>count($characters)||$start+$delete>count($characters))throw new HttpException(422,'INVALID_EDIT','A posição da edição é inválida. Recarregue a página.');
-            for($index=$start;$index<$start+$delete;$index++)if($owners[$index]!==$actorId)throw new HttpException(422,'FOREIGN_TEXT_PROTECTED','Você só pode alterar ou apagar os trechos que escreveu.');
+            for($index=$start;$index<$start+$delete;$index++)if(!$canEditAll&&$owners[$index]!==$actorId)throw new HttpException(422,'FOREIGN_TEXT_PROTECTED','Você só pode alterar ou apagar os trechos que escreveu.');
             $insertChars=mb_str_split($insert);
             array_splice($characters,$start,$delete,$insertChars);array_splice($owners,$start,$delete,array_fill(0,count($insertChars),$actorId));array_splice($names,$start,$delete,array_fill(0,count($insertChars),$authorName));
             if($insert!=='')$insertions[]=['position'=>$start,'text'=>$insert];
