@@ -173,6 +173,7 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertStringContainsString('2º Ano - Ensino Fundamental',$html);
         self::assertSame(1,substr_count($html,'data-shared-content'));
         self::assertStringContainsString('Texto coletivo da turma',$html);
+        self::assertStringNotContainsString('Acompanhamento das finalizações',$html);
         self::assertStringContainsString('>Finalizar turma</button>',$html);
         self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('<details id="turma-',$html);
@@ -189,13 +190,55 @@ final class CouncilDocumentServiceTest extends TestCase
         $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
         $html=$view->render('document',['document'=>$this->service->document(1,1,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
         self::assertStringContainsString('data-opening-content',$html);
-        self::assertStringContainsString('1º Ano - Ensino Fundamental: Os estudantes avançaram nas aprendizagens.',$html);
+        self::assertStringContainsString('Os estudantes avançaram nas aprendizagens.',$html);
+        self::assertStringNotContainsString('1º Ano - Ensino Fundamental: Os estudantes avançaram nas aprendizagens.',$html);
         self::assertStringContainsString('Professor Um',$html);
         self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('Os estudantes avançaram nas aprendizagens.',$html);
         self::assertSame(2,substr_count($html,'data-shared-content'));
         self::assertStringContainsString('Você pode escrever nesta turma sem precisar de vínculo.',$html);
         self::assertSame(1,substr_count($html,'data-final-narrative'));
+        self::assertStringContainsString('Acompanhamento das finalizações',$html);
+        self::assertStringContainsString('Quem ainda precisa finalizar',$html);
+        self::assertStringContainsString('Pendente em 2 turma(s)',$html);
+        self::assertStringContainsString('Faltam: Professor Dois, Professor Um',$html);
+        self::assertStringContainsString('has-pending',$html);
+    }
+
+    public function testGestaoVeTurmasConcluidasComDestaqueEConfirmacaoGeral(): void
+    {
+        $first=$this->classId(10);$second=$this->classId(20);
+        $this->service->saveClass(1,$first,'Relato coletivo do primeiro ano.',1,2,'PROFESSOR','127.0.0.1','test');
+        $this->service->saveClass(1,$second,'Relato coletivo do segundo ano.',1,2,'PROFESSOR','127.0.0.1','test');
+        $this->service->finalizeClass(1,$first,2,'PROFESSOR',true,'127.0.0.1','test');
+        $this->service->finalizeClass(1,$first,3,'PROFESSOR',true,'127.0.0.1','test');
+        $this->service->finalizeClass(1,$second,2,'PROFESSOR',true,'127.0.0.1','test');
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/documentos/1';
+        $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+        $html=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringContainsString('2 turmas concluídas',$html);
+        self::assertStringContainsString('Todos os professores finalizaram.',$html);
+        self::assertSame(2,substr_count($html,'is-complete'));
+        self::assertSame(2,substr_count($html,'Turma concluída'));
+        self::assertStringNotContainsString('Quem ainda precisa finalizar',$html);
+        $css=(string)file_get_contents(dirname(__DIR__).'/apps/preconselho-web/public/assets/app.css');
+        self::assertStringContainsString('.shared-class-section.is-complete',$css);
+    }
+
+    public function testTextoFinalSeparaConteudosEmParagrafosSemExibirNomeDasTurmas(): void
+    {
+        $first=$this->classId(10);$second=$this->classId(20);
+        $this->service->saveClass(1,$first,'Relato do primeiro ano.',1,2,'PROFESSOR','127.0.0.1','test');
+        $this->service->saveClass(1,$second,'Relato do segundo ano.',1,2,'PROFESSOR','127.0.0.1','test');
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/documentos/1';
+        $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+        $html=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        $expected="Relato do primeiro ano.\n\nRelato do segundo ano.";
+        self::assertStringContainsString($expected,$html);
+        self::assertStringNotContainsString('1º Ano - Ensino Fundamental: Relato do primeiro ano.',$html);
+        $css=(string)file_get_contents(dirname(__DIR__).'/apps/preconselho-web/public/assets/app.css');
+        self::assertStringContainsString('padding:10mm 12mm!important',$css);
+        self::assertStringContainsString('white-space:pre-line',$css);
     }
 
     public function testPaineisResumemFinalizacoesDoProfessorEDaCoordenacao(): void
