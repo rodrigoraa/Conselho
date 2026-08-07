@@ -1,0 +1,22 @@
+[Unit]
+Description=Editor colaborativo do Conselho de Classe
+After=network.target php8.3-fpm.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/Conselho
+EnvironmentFile=/var/www/Conselho/.env
+ExecStart=/usr/bin/node /var/www/Conselho/collaboration/server.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/Conselho/storage /var/www/data
+
+[Install]
+WantedBy=multi-user.target

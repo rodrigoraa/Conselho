@@ -2,12 +2,12 @@
 
 Monorepo PHP 8.2 com duas aplicações independentes: uma API REST que abre o banco da secretaria em modo somente leitura e o sistema MVC de pré-conselho, com banco próprio. Apenas os diretórios `public/` devem ser publicados.
 
-O fluxo principal mantém um documento coletivo por período e turno. As turmas aparecem recolhidas e cada uma possui um único texto livre compartilhado pelos professores vinculados, pela coordenação e pela administração. Um bloqueio temporário reserva a turma para apenas um editor por vez e expira após aproximadamente um minuto de inatividade. Professores podem corrigir ou apagar somente os próprios trechos; coordenação e administração podem alterar qualquer parte do texto. Ao finalizar a turma, a edição do professor fica bloqueada até que a coordenação ou administração a libere novamente. As turmas são exibidas e consolidadas do 1º Ano do Ensino Fundamental ao 3º Ano do Ensino Médio, com nomes padronizados. A abertura da ata é editável apenas pela coordenação e administração.
+O fluxo principal mantém um documento coletivo por período e turno. As turmas aparecem recolhidas e cada uma possui um único texto livre compartilhado pelos professores vinculados, pela coordenação e pela administração. O editor usa WebSocket, Yjs, Tiptap e Hocuspocus para permitir escrita simultânea, presença e cursores em tempo real. Professores podem corrigir ou apagar somente os próprios trechos; coordenação e administração podem alterar qualquer parte do texto. Se o serviço colaborativo não estiver configurado, o editor anterior com bloqueio temporário continua disponível como contingência. Ao finalizar a turma, a edição do professor fica bloqueada até que a coordenação ou administração a libere novamente. As turmas são exibidas e consolidadas do 1º Ano do Ensino Fundamental ao 3º Ano do Ensino Médio, com nomes padronizados. A abertura da ata é editável apenas pela coordenação e administração.
 
 ## Instalação
 
-1. Instale PHP 8.2+, Composer e as extensões PDO SQLite, cURL, JSON e mbstring.
-2. Execute `composer install --no-dev --optimize-autoloader` em produção (sem `--no-dev` para testes).
+1. Instale PHP 8.2+, Composer, Node.js 22+, npm e as extensões PDO SQLite, cURL, JSON e mbstring.
+2. Execute `composer install --no-dev --optimize-autoloader`, `npm ci`, `npm run build` e `npm prune --omit=dev` em produção (sem `--no-dev`/`npm prune` para testes).
 3. Copie `.env.example` para `.env`, gere `APP_KEY` e `SECRETARIA_API_KEY` com `php scripts/generate-api-key.php` e ajuste os caminhos.
 4. Execute `php scripts/check-requirements.php`, `composer migrate` e `php scripts/console.php create-admin 529.982.247-25 "Administrador"` (substitua pelo CPF real do responsável).
 5. Publique `apps/secretaria-api/public` em `127.0.0.1:8081` e `apps/preconselho-web/public` no endereço institucional.
@@ -18,7 +18,7 @@ Para desenvolvimento, use `php -S 127.0.0.1:8081 -t apps/secretaria-api/public a
 
 O `.env` fica na raiz, fora dos diretórios públicos. `SECRETARIA_DB_PATH` precisa ser legível, nunca gravável pelo usuário da API; `PRECONSELHO_DB_PATH` e seu diretório precisam ser graváveis pelo usuário da aplicação. Use HTTPS, `SESSION_SECURE=true`, `APP_ENV=production` e `APP_DEBUG=false` em produção. A chave enviada em `X-API-Key` deve ser igual nas duas aplicações.
 
-Migrations: `composer migrate`. Seed opcional: `composer seed`. Testes: `composer test`. Backup consistente: `php scripts/backup.php /backup/preconselho-AAAA-MM-DD.db`. Verificações: `php scripts/check-permissions.php`.
+Migrations: `composer migrate`. Seed opcional: `composer seed`. Testes: `composer test`. Verificação da colaboração: `npm run collaboration:verify`. Backup consistente: `php scripts/backup.php /backup/preconselho-AAAA-MM-DD.db`. Verificações: `php scripts/check-permissions.php`.
 
 O login usa somente o CPF, com validação dos dígitos verificadores. Em uma instalação atualizada que já possua usuários, depois das migrations vincule um CPF a cada conta com `php scripts/console.php set-cpf EMAIL-ANTIGO 529.982.247-25`. O e-mail serve apenas para localizar a conta antiga durante essa migração e não aparece mais no acesso.
 

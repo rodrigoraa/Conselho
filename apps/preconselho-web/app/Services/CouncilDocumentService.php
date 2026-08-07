@@ -107,6 +107,14 @@ final class CouncilDocumentService
         $statement->execute([':turma'=>$classDocumentId,':usuario'=>$actorId,':token'=>$token,':periodo'=>$periodId]);
     }
 
+    public function collaborationState(int $periodId,int $classDocumentId,int $actorId,string $role): array
+    {
+        $row=$this->editableClass($periodId,$classDocumentId,$actorId,$role);
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto para preenchimento.');
+        if($role==='PROFESSOR'&&(bool)$row['finalizado'])throw new HttpException(422,'CLASS_FINALIZED','A coordenação ou administração precisa liberar uma nova edição.');
+        return['period'=>$periodId,'class'=>$classDocumentId,'content'=>(string)$row['conteudo'],'version'=>(int)$row['versao']];
+    }
+
     public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent,array $operations=[],string $lockToken=''): array
     {
         if(!in_array($role,['PROFESSOR','COORDENADOR','ADMIN'],true))throw new HttpException(403,'FORBIDDEN','Você não pode editar as turmas.');

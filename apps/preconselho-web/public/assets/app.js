@@ -132,6 +132,7 @@ if(collectiveDocument){
     const textarea=section.querySelector('[data-shared-content]');
     const csrf=section.querySelector('[data-class-csrf]')?.value||section.querySelector('input[name="_csrf"]')?.value||'';
     const render=()=>{const readonly=section.querySelector('[data-class-readonly]');const text=contributionText(textarea||readonly);section.classList.toggle('is-empty',text===''||text==='Nenhum professor escreveu nesta turma até o momento.');rebuildFinalNarrative()};
+    if(textarea?.dataset.collaborationToken){textarea.addEventListener('collaboration:update',render);section.querySelector('[data-finalize-class]')?.addEventListener('submit',event=>{if(!textarea.value.trim()){event.preventDefault();alert('Escreva no texto da turma antes de finalizar.')}});render();return}
     let timer=null,inFlight=null,dirty=false,lastValue=textarea?.value||'',operations=[],lockToken='',lockInFlight=null,lastActivity=0;
     const status=section.querySelector('[data-shared-save-status]');
     const badge=section.querySelector('[data-lock-badge]');

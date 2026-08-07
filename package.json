@@ -1,0 +1,29 @@
+{
+  "name": "conselho-colaborativo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild collaboration/client.js --bundle --minify --outfile=apps/preconselho-web/public/assets/collaboration.js",
+    "collaboration:start": "node --env-file-if-exists=.env collaboration/server.mjs",
+    "collaboration:check": "node --check collaboration/server.mjs && node --check collaboration/client.js",
+    "collaboration:test": "node collaboration/integration-test.mjs",
+    "collaboration:verify": "node --env-file-if-exists=.env scripts/check-collaboration.mjs"
+  },
+  "dependencies": {
+    "@hocuspocus/extension-sqlite": "4.5.0",
+    "@hocuspocus/provider": "4.5.0",
+    "@hocuspocus/server": "4.5.0",
+    "@hocuspocus/transformer": "4.5.0",
+    "@tiptap/core": "3.29.2",
+    "@tiptap/extension-collaboration": "3.29.2",
+    "@tiptap/extension-collaboration-caret": "3.29.2",
+    "@tiptap/extension-document": "3.29.2",
+    "@tiptap/extension-paragraph": "3.29.2",
+    "@tiptap/extension-text": "3.29.2",
+    "diff": "9.0.0",
+    "yjs": "13.6.32"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

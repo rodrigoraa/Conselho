@@ -156,6 +156,22 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame(1,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='LIBERAR_REEDICAO_TURMA'")->fetchColumn());
     }
 
+    public function testEstadoColaborativoRespeitaVinculoEFinalizacaoDoProfessor(): void
+    {
+        $classId=$this->classId(10);
+        $state=$this->service->collaborationState(1,$classId,2,'PROFESSOR');
+        self::assertSame($classId,$state['class']);
+        self::assertSame(1,$state['version']);
+        self::assertSame('',$state['content']);
+        try{$this->service->collaborationState(1,$this->classId(20),3,'PROFESSOR');self::fail('Professor sem vínculo não deveria abrir a colaboração.');}
+        catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        $this->service->saveClass(1,$classId,'Participação concluída.',1,2,'PROFESSOR','127.0.0.1','test');
+        $this->service->finalizeClass(1,$classId,2,'PROFESSOR',true,'127.0.0.1','test');
+        try{$this->service->collaborationState(1,$classId,2,'PROFESSOR');self::fail('Professor finalizado não deveria reabrir o editor colaborativo.');}
+        catch(HttpException$exception){self::assertSame('CLASS_FINALIZED',$exception->errorCode);}
+        self::assertSame('Participação concluída.',$this->service->collaborationState(1,$classId,1,'COORDENADOR')['content']);
+    }
+
     public function testProfessorNaoEditaTurmaEmQueNaoLeciona(): void
     {
         $this->expectException(HttpException::class);
@@ -180,6 +196,23 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertStringNotContainsString('<details id="turma-1" open',$html);
         self::assertStringNotContainsString('Adicionar outro aluno',$html);
         self::assertStringNotContainsString('data-student-group',$html);
+    }
+
+    public function testTelaEmiteCredencialColaborativaSomenteParaTurmaEditavel(): void
+    {
+        $secret='0123456789abcdef0123456789abcdef0123456789abcdef';
+        putenv('COLLABORATION_SECRET='.$secret);putenv('COLLABORATION_WS_URL=ws://127.0.0.1:1234');
+        try{
+            $_SESSION['user']=['id'=>3,'nome'=>'Professor Dois','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/documentos/1';
+            $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+            $html=$view->render('document',['document'=>$this->service->document(1,3,'PROFESSOR'),'period'=>1,'title'=>'Documento coletivo']);
+            self::assertSame(1,substr_count($html,'data-collaboration-token='));
+            self::assertStringContainsString('data-collaboration-document="council:1:'.$this->classId(10).'"',$html);
+            self::assertStringContainsString('Edição simultânea ativada',$html);
+            preg_match('/data-collaboration-token="([^"]+)"/',$html,$matches);
+            $claims=\PreConselho\Support\CollaborationToken::verify(html_entity_decode($matches[1]??'',ENT_QUOTES|ENT_HTML5,'UTF-8'),$secret);
+            self::assertSame(3,$claims['sub']);self::assertSame('PROFESSOR',$claims['role']);
+        }finally{putenv('COLLABORATION_SECRET');putenv('COLLABORATION_WS_URL');}
     }
 
     public function testAdministracaoVeTextoFinalEHistoricoDeAutoriaSemEditarTurma(): void

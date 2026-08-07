@@ -5,6 +5,8 @@
 
 # Dependências instaladas pelo Composer
 /vendor/
+/node_modules/
+/apps/preconselho-web/public/assets/collaboration.js.map
 
 # Bancos SQLite e arquivos auxiliares
 *.db
