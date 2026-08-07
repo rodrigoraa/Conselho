@@ -47,6 +47,9 @@ adminModules.forEach(module=>module.addEventListener('toggle',()=>{if(module.ope
 document.querySelectorAll('.admin-nav a[href^="#"]').forEach(link=>link.addEventListener('click',()=>{const module=document.querySelector(link.getAttribute('href'))?.querySelector('.admin-module');if(module)module.open=true}));
 document.querySelectorAll('[data-close-details]').forEach(button=>button.addEventListener('click',()=>{const details=button.closest('details');if(details)details.open=false}));
 
+const formatCpf=value=>value.replace(/\D/g,'').slice(0,11).replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/(\d{3})(\d{1,2})$/,'$1-$2');
+document.querySelectorAll('[data-cpf-input]').forEach(input=>{input.value=formatCpf(input.value);input.addEventListener('input',()=>{input.value=formatCpf(input.value)})});
+
 const reportForm=document.querySelector('[data-report-form]');
 if(reportForm){
   const progress=reportForm.querySelector('[data-report-progress]');
@@ -84,4 +87,24 @@ if(reportForm){
   reportForm.addEventListener('input',scheduleSave);reportForm.addEventListener('change',scheduleSave);
   reportForm.addEventListener('submit',event=>{const state=renderProgress();const action=event.submitter?.value||'rascunho';if(action==='enviar'&&state.missing.length){event.preventDefault();alert('Antes de enviar, corrija:\n\n'+state.missing.slice(0,8).join('\n'));reportForm.querySelector('.incomplete')?.scrollIntoView({behavior:'smooth',block:'center'});return}if(saveTimer||saveInFlight){event.preventDefault();if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}const finish=saveInFlight||autosave();finish.finally(()=>{submitting=true;const field=document.createElement('input');field.type='hidden';field.name='acao';field.value=action;reportForm.appendChild(field);HTMLFormElement.prototype.submit.call(reportForm)})}});
   window.addEventListener('beforeunload',event=>{if(dirty&&!submitting){event.preventDefault();event.returnValue=''}});renderProgress();
+}
+
+const councilDocumentForm=document.querySelector('[data-document-form]');
+if(councilDocumentForm){
+  const sections=[...councilDocumentForm.querySelectorAll('[data-document-section]')];
+  const filledOutput=document.querySelector('[data-document-filled]');
+  const progress=document.querySelector('[data-document-progress]');
+  const autosaveOutput=document.querySelector('[data-document-autosave]');
+  let timer=null,inFlight=null,dirty=false,submitting=false;
+  const refreshDocument=()=>{
+    let filled=0;
+    sections.forEach(section=>{const textarea=section.querySelector('textarea');if(!textarea)return;const complete=textarea.value.trim()!=='';if(complete)filled++;section.classList.toggle('is-empty',!complete);section.classList.remove('incomplete');const state=section.querySelector('.section-state');if(state)state.textContent=complete?'Relato preenchido':'Aguardando relato';const print=section.querySelector('[data-print-narrative]');if(print)print.textContent=complete?textarea.value:'Sem relato registrado.'});
+    if(filledOutput)filledOutput.textContent=String(filled);if(progress)progress.value=filled;return{filled,missing:sections.length-filled};
+  };
+  const saveDocument=()=>{if(!dirty||submitting)return inFlight||Promise.resolve();dirty=false;if(autosaveOutput)autosaveOutput.textContent='Salvando alterações…';inFlight=fetch(councilDocumentForm.dataset.autosaveUrl,{method:'POST',body:new FormData(councilDocumentForm),headers:{'X-Requested-With':'XMLHttpRequest'}}).then(response=>{if(!response.ok)throw new Error('save');return response.json()}).then(data=>{Object.entries(data.versions||{}).forEach(([id,version])=>{const field=councilDocumentForm.querySelector(`[data-document-version="${id}"]`);if(field)field.value=String(version)});if(autosaveOutput)autosaveOutput.textContent=`✓ Alterações salvas às ${data.saved_at}`}).catch(()=>{dirty=true;if(autosaveOutput)autosaveOutput.textContent='Não foi possível salvar automaticamente. Use “Salvar e continuar depois”.'}).finally(()=>{inFlight=null});return inFlight};
+  const scheduleDocumentSave=()=>{dirty=true;refreshDocument();if(timer)clearTimeout(timer);timer=setTimeout(saveDocument,1500)};
+  councilDocumentForm.addEventListener('input',scheduleDocumentSave);
+  councilDocumentForm.addEventListener('submit',event=>{const action=event.submitter?.value||'rascunho';const state=refreshDocument();if(action==='enviar'&&state.missing){event.preventDefault();sections.filter(section=>!section.querySelector('textarea')?.value.trim()).forEach(section=>section.classList.add('incomplete'));alert(`Preencha todas as turmas antes de enviar. Ainda faltam ${state.missing} seção(ões).`);councilDocumentForm.querySelector('.incomplete')?.scrollIntoView({behavior:'smooth',block:'center'});return}if(timer||inFlight){event.preventDefault();if(timer){clearTimeout(timer);timer=null;}const finish=inFlight||saveDocument();finish.finally(()=>{submitting=true;const actionField=document.createElement('input');actionField.type='hidden';actionField.name='acao';actionField.value=action;councilDocumentForm.appendChild(actionField);HTMLFormElement.prototype.submit.call(councilDocumentForm)})}else submitting=true});
+  window.addEventListener('beforeunload',event=>{if(dirty&&!submitting){event.preventDefault();event.returnValue=''}});
+  refreshDocument();
 }

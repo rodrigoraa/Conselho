@@ -1,14 +1,60 @@
 <?php declare(strict_types=1);
-use PreConselho\Support\PasswordPolicy;use Shared\Database\ConnectionFactory;use Shared\Env;
-require dirname(__DIR__).'/vendor/autoload.php';Env::load(dirname(__DIR__).'/.env');$command=$argv[1]??'help';$path=Env::get('PRECONSELHO_DB_PATH',dirname(__DIR__).'/storage/preconselho.db')??'';$db=ConnectionFactory::preconselho($path);
+
+use PreConselho\Support\Cpf;
+use Shared\Database\ConnectionFactory;
+use Shared\Env;
+
+require dirname(__DIR__).'/vendor/autoload.php';
+Env::load(dirname(__DIR__).'/.env');
+$command=$argv[1]??'help';
+$path=Env::get('PRECONSELHO_DB_PATH',dirname(__DIR__).'/storage/preconselho.db')??'';
+$db=ConnectionFactory::preconselho($path);
+
 try{
- if($command==='migrate'){
-  $db->exec('CREATE TABLE IF NOT EXISTS migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,nome TEXT NOT NULL UNIQUE,executada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');$files=glob(dirname(__DIR__).'/apps/preconselho-web/database/migrations/*.sql')?:[];sort($files);
-  foreach($files as$file){$name=basename($file);$check=$db->prepare('SELECT 1 FROM migrations WHERE nome=?');$check->execute([$name]);if($check->fetchColumn())continue;$db->beginTransaction();try{$db->exec((string)file_get_contents($file));$db->prepare('INSERT INTO migrations(nome)VALUES(?)')->execute([$name]);$db->commit();echo "Aplicada: $name\n";}catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}}echo "Migrations concluídas.\n";
- }elseif($command==='seed'){
-  $password=Env::get('SEED_ADMIN_PASSWORD','');if(!$password||!PasswordPolicy::accepts($password))throw new RuntimeException('Defina SEED_ADMIN_PASSWORD com pelo menos '.PasswordPolicy::MIN_LENGTH.' caracteres.');
-  $users=[['Administrador','admin@escola.local','ADMIN'],['Coordenação','coordenacao@escola.local','COORDENADOR'],['Professor Um','professor1@escola.local','PROFESSOR'],['Professor Dois','professor2@escola.local','PROFESSOR']];$db->beginTransaction();try{foreach($users as[$name,$email,$role]){$db->prepare('INSERT OR IGNORE INTO usuarios(nome,email,senha_hash,perfil)VALUES(?,?,?,?)')->execute([$name,$email,password_hash($password,PASSWORD_DEFAULT),$role]);if($role==='PROFESSOR'){$id=(int)$db->query("SELECT id FROM usuarios WHERE email=".$db->quote($email))->fetchColumn();$db->prepare('INSERT OR IGNORE INTO professores(usuario_id)VALUES(?)')->execute([$id]);}}foreach(['Língua Portuguesa','Matemática','Ciências']as$name)$db->prepare('INSERT OR IGNORE INTO disciplinas(nome)VALUES(?)')->execute([$name]);$db->commit();}catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}echo "Seed V2 concluído. Altere as senhas imediatamente.\n";
- }elseif($command==='create-admin'){
-  $email=$argv[2]??'';$name=$argv[3]??'Administrador';$password=$argv[4]??'';if(!filter_var($email,FILTER_VALIDATE_EMAIL)||!PasswordPolicy::accepts($password))throw new RuntimeException('Uso: create-admin email nome senha-com-'.PasswordPolicy::MIN_LENGTH.'-caracteres');$db->prepare("INSERT INTO usuarios(nome,email,senha_hash,perfil)VALUES(?,?,?,'ADMIN')")->execute([$name,mb_strtolower($email),password_hash($password,PASSWORD_DEFAULT)]);echo "Administrador criado.\n";
- }else echo "Comandos: migrate | seed | create-admin EMAIL NOME SENHA\n";
+    if($command==='migrate'){
+        $db->exec('CREATE TABLE IF NOT EXISTS migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,nome TEXT NOT NULL UNIQUE,executada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+        $files=glob(dirname(__DIR__).'/apps/preconselho-web/database/migrations/*.sql')?:[];
+        sort($files);
+        foreach($files as$file){
+            $name=basename($file);$check=$db->prepare('SELECT 1 FROM migrations WHERE nome=?');$check->execute([$name]);
+            if($check->fetchColumn())continue;
+            $db->beginTransaction();
+            try{$db->exec((string)file_get_contents($file));$db->prepare('INSERT INTO migrations(nome)VALUES(?)')->execute([$name]);$db->commit();echo "Aplicada: $name\n";}
+            catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}
+        }
+        echo "Migrations concluídas.\n";
+    }elseif($command==='seed'){
+        $users=[
+            ['Administrador','admin@escola.local','52998224725','ADMIN'],
+            ['Coordenação','coordenacao@escola.local','11144477735','COORDENADOR'],
+            ['Professor Um','professor1@escola.local','12345678909','PROFESSOR'],
+            ['Professor Dois','professor2@escola.local','93541134780','PROFESSOR'],
+        ];
+        $db->beginTransaction();
+        try{
+            foreach($users as[$name,$email,$cpf,$role]){
+                $hash=password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT);
+                $db->prepare('INSERT OR IGNORE INTO usuarios(nome,email,cpf,senha_hash,perfil,alterar_senha)VALUES(?,?,?,?,?,0)')->execute([$name,$email,$cpf,$hash,$role]);
+                $db->prepare('UPDATE usuarios SET cpf=?,alterar_senha=0 WHERE email=?')->execute([$cpf,$email]);
+                if($role==='PROFESSOR'){$statement=$db->prepare('SELECT id FROM usuarios WHERE email=?');$statement->execute([$email]);$id=(int)$statement->fetchColumn();$db->prepare('INSERT OR IGNORE INTO professores(usuario_id)VALUES(?)')->execute([$id]);}
+            }
+            foreach(['Língua Portuguesa','Matemática','Ciências']as$name)$db->prepare('INSERT OR IGNORE INTO disciplinas(nome)VALUES(?)')->execute([$name]);
+            $db->commit();
+        }catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}
+        echo "Dados de exemplo criados. O acesso é feito somente pelo CPF.\n";
+    }elseif($command==='create-admin'){
+        $cpf=Cpf::normalize($argv[2]??'');$name=trim($argv[3]??'Administrador');
+        if(!Cpf::isValid($cpf)||$name==='')throw new RuntimeException('Uso: create-admin CPF "Nome do administrador"');
+        $email='cpf-'.$cpf.'@usuario.local';$hash=password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT);
+        $db->prepare("INSERT INTO usuarios(nome,email,cpf,senha_hash,perfil,alterar_senha)VALUES(?,?,?,?,'ADMIN',0)")->execute([$name,$email,$cpf,$hash]);
+        echo 'Administrador criado. Entre com '.Cpf::format($cpf).".\n";
+    }elseif($command==='set-cpf'){
+        $email=mb_strtolower(trim($argv[2]??''));$cpf=Cpf::normalize($argv[3]??'');
+        if(!filter_var($email,FILTER_VALIDATE_EMAIL)||!Cpf::isValid($cpf))throw new RuntimeException('Uso: set-cpf EMAIL-ANTIGO CPF');
+        $statement=$db->prepare('UPDATE usuarios SET cpf=?,alterar_senha=0,atualizado_em=CURRENT_TIMESTAMP WHERE email=? AND excluido_em IS NULL');$statement->execute([$cpf,$email]);
+        if($statement->rowCount()!==1)throw new RuntimeException('Usuário não encontrado pelo e-mail informado.');
+        echo 'CPF vinculado. O usuário já pode entrar com '.Cpf::format($cpf).".\n";
+    }else{
+        echo "Comandos: migrate | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+    }
 }catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

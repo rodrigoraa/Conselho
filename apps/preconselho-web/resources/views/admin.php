@@ -1,5 +1,5 @@
 <?php
-use PreConselho\Support\Csrf;
+use PreConselho\Support\{Cpf,Csrf};
 
 $bindingsByProfessor=[];
 foreach($bindings as $binding){
@@ -35,7 +35,7 @@ ob_start();
             <label class="search">
                 <span class="sr-only">Buscar usuário</span>
                 <span aria-hidden="true">⌕</span>
-                <input type="search" placeholder="Buscar por nome, e-mail ou perfil" data-card-search="#user-management-list" data-empty-target="#users-empty">
+                <input type="search" placeholder="Buscar por nome, CPF ou perfil" data-card-search="#user-management-list" data-empty-target="#users-empty">
             </label>
             </div>
 
@@ -46,9 +46,8 @@ ob_start();
                     <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
                     <div class="grid">
                         <label>Nome completo<input name="nome" required maxlength="150" placeholder="Ex.: Maria Aparecida"></label>
-                        <label>E-mail institucional<input name="email" type="email" required placeholder="nome@escola.com.br"></label>
+                        <label>CPF<input name="cpf" inputmode="numeric" maxlength="14" required placeholder="000.000.000-00" data-cpf-input></label>
                         <label>Tipo de acesso<select name="perfil"><option value="PROFESSOR">Professor — preenche relatórios</option><option value="COORDENADOR">Coordenação — confere relatórios</option><option value="ADMIN">Administrador — gerencia o sistema</option></select></label>
-                        <label>Senha inicial<input name="senha" type="password" minlength="6" required placeholder="No mínimo 6 caracteres"></label>
                     </div>
                     <button class="primary">Criar usuário</button>
                 </form>
@@ -62,7 +61,7 @@ ob_start();
                         <span class="avatar" aria-hidden="true"><?=e(mb_strtoupper(mb_substr($u['nome'],0,1)))?></span>
                         <span class="user-card-identity">
                             <strong><?=e($u['nome'])?></strong>
-                            <small><?=e($u['email'])?></small>
+                            <small><?=e(Cpf::format($u['cpf']??''))?></small>
                             <span><span class="badge"><?=e(['PROFESSOR'=>'Professor','COORDENADOR'=>'Coordenação','ADMIN'=>'Administrador'][$u['perfil']]??$u['perfil'])?></span> <span class="badge status-<?=$u['ativo']?'aprovado':'pendente'?>"><?=e($u['ativo']?'Ativo':'Inativo')?></span></span>
                         </span>
                     </div>
@@ -73,11 +72,9 @@ ob_start();
                                 <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
                                 <div class="grid">
                                     <label>Nome completo<input name="nome" value="<?=e($u['nome'])?>" required maxlength="150"></label>
-                                    <label>E-mail<input name="email" type="email" value="<?=e($u['email'])?>" required></label>
+                                    <label>CPF<input name="cpf" inputmode="numeric" maxlength="14" value="<?=e(Cpf::format($u['cpf']??''))?>" required data-cpf-input></label>
                                 </div>
                                 <label>Tipo de acesso<select name="perfil"><option value="PROFESSOR" <?=$u['perfil']==='PROFESSOR'?'selected':''?>>Professor</option><option value="COORDENADOR" <?=$u['perfil']==='COORDENADOR'?'selected':''?>>Coordenação</option><option value="ADMIN" <?=$u['perfil']==='ADMIN'?'selected':''?>>Administrador</option></select></label>
-                                <label>Redefinir senha <small>(opcional)</small><input name="senha" type="password" minlength="6" autocomplete="new-password" placeholder="Não é necessário saber a senha atual"></label>
-                                <p class="helper">Ao redefinir, o usuário criará uma senha pessoal no próximo acesso.</p>
                                 <div class="actions"><button type="button" data-close-details>Cancelar</button><button class="primary">Salvar alterações</button></div>
                             </form>
                         </details>
@@ -130,7 +127,7 @@ ob_start();
             <div class="admin-collapsible-body">
                 <form method="post" action="/admin/vinculos" id="binding-form">
                     <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
-                    <div class="binding-step"><span class="step-number">1</span><div><label for="professor_id">Professor</label><?php if($professors):?><select id="professor_id" name="professor_id" required><option value="">Selecione um professor</option><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>"><?=e($p['nome'])?> — <?=e($p['email'])?></option><?php endforeach;?></select><?php else:?><p class="error">Nenhum professor ativo cadastrado.</p><?php endif;?></div></div>
+                    <div class="binding-step"><span class="step-number">1</span><div><label for="professor_id">Professor</label><?php if($professors):?><select id="professor_id" name="professor_id" required><option value="">Selecione um professor</option><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>"><?=e($p['nome'])?> — <?=e(Cpf::format($p['cpf']??''))?></option><?php endforeach;?></select><?php else:?><p class="error">Nenhum professor ativo cadastrado.</p><?php endif;?></div></div>
                     <div class="binding-step"><span class="step-number">2</span><div><div class="choice-heading"><div><label>Turmas</label><p class="helper">Você pode marcar várias turmas.</p></div><?php if($classes):?><label class="search"><span class="sr-only">Buscar turma</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar turma" data-choice-filter="#class-choices"></label><?php endif;?></div><?php if($classesError):?><p class="error" role="alert"><?=e($classesError)?></p><?php elseif(!$classes):?><p class="empty-state compact">Nenhuma turma disponível na secretaria.</p><?php else:?><div class="choice-grid" id="class-choices"><?php foreach($classes as $class):?><label class="choice-card"><input type="checkbox" name="turma_ids[]" value="<?=e($class['id'])?>"><span><strong><?=e($class['nome_turma'])?></strong></span></label><?php endforeach;?></div><p class="selection-count"><strong data-selection-count="#class-choices">0</strong> turma(s) selecionada(s)</p><?php endif;?></div></div>
                     <div class="binding-step"><span class="step-number">3</span><div><label>Disciplinas</label><p class="helper">Marque todas as disciplinas ministradas nas turmas selecionadas.</p><?php if(!$disciplines):?><p class="empty-state compact">Cadastre ao menos uma disciplina para continuar.</p><?php else:?><div class="choice-grid compact-choices" id="discipline-choices"><?php foreach($disciplines as $d):?><label class="choice-card"><input type="checkbox" name="disciplina_ids[]" value="<?=e($d['id'])?>"><span><strong><?=e($d['nome'])?></strong></span></label><?php endforeach;?></div><p class="selection-count"><strong data-selection-count="#discipline-choices">0</strong> disciplina(s) selecionada(s)</p><?php endif;?></div></div>
                     <div class="binding-submit"><p class="helper">Exemplo: 2 turmas × 3 disciplinas criarão 6 vínculos.</p><button class="primary" <?=(!$professors||!$classes||!$disciplines)?'disabled':''?>>Criar vínculos</button></div>
