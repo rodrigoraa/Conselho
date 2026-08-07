@@ -35,7 +35,7 @@ $schoolName=Env::get('SCHOOL_NAME','Escola Estadual São José')??'Escola Estadu
 $shiftLabel=$periodData['turno']==='VESPERTINO'?'Turno Vespertino':'Turno Matutino';
 $finalSegments=[];$openingText=trim((string)$opening['texto']);if($openingText!=='')$finalSegments[]=rtrim($openingText);
 foreach($classes as$class){$classText=trim((string)$class['conteudo']);if($classText!=='')$finalSegments[]=$classText;}
-$finalText=implode("\n\n",$finalSegments);
+$finalText=implode(' ',$finalSegments);
 ob_start();
 ?>
 <section class="page-heading council-heading"><div><p class="eyebrow">Documento coletivo do conselho</p><h1><?=e($periodData['nome'])?> · <?=e($periodData['ano_letivo'])?></h1><p><?=e($shiftLabel)?> · <?=count($classes)?> turma(s) · um texto livre e compartilhado para cada turma</p></div><div class="heading-actions"><span class="badge status-<?=e(strtolower($periodData['status']))?>"><?=e($periodData['status']==='ABERTO'?'Em preenchimento':($periodData['status']==='ENCERRADO'?'Encerrado':'Em preparação'))?></span><button type="button" data-print-page>Imprimir documento</button></div></section>

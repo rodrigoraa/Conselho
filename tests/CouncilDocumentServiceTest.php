@@ -225,16 +225,17 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertStringContainsString('.shared-class-section.is-complete',$css);
     }
 
-    public function testTextoFinalSeparaConteudosEmParagrafosSemExibirNomeDasTurmas(): void
+    public function testTextoFinalUneTurmasSemQuebraAutomaticaEPreservaQuebraDigitada(): void
     {
         $first=$this->classId(10);$second=$this->classId(20);
-        $this->service->saveClass(1,$first,'Relato do primeiro ano.',1,2,'PROFESSOR','127.0.0.1','test');
+        $this->service->saveClass(1,$first,"Relato do primeiro ano.\nContinuação digitada pelo professor.",1,2,'PROFESSOR','127.0.0.1','test');
         $this->service->saveClass(1,$second,'Relato do segundo ano.',1,2,'PROFESSOR','127.0.0.1','test');
         $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/documentos/1';
         $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
         $html=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
-        $expected="Relato do primeiro ano.\n\nRelato do segundo ano.";
+        $expected="Relato do primeiro ano.\nContinuação digitada pelo professor. Relato do segundo ano.";
         self::assertStringContainsString($expected,$html);
+        self::assertStringNotContainsString("Continuação digitada pelo professor.\n\nRelato do segundo ano.",$html);
         self::assertStringNotContainsString('1º Ano - Ensino Fundamental: Relato do primeiro ano.',$html);
         $css=(string)file_get_contents(dirname(__DIR__).'/apps/preconselho-web/public/assets/app.css');
         self::assertStringContainsString('padding:10mm 12mm!important',$css);
