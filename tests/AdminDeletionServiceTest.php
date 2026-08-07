@@ -45,6 +45,17 @@ final class AdminDeletionServiceTest extends TestCase
         self::assertSame('EXCLUIR',$this->db->query("SELECT acao FROM auditoria WHERE entidade='vinculos_professor_turma'")->fetchColumn());
     }
 
+    public function testAdminCanDeleteEveryBindingFromProfessorAndPreserveCreatedDocuments(): void
+    {
+        $this->db->exec("INSERT INTO vinculos_professor_turma(id,professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(2,1,20,'8º A',2026,'VESPERTINO');INSERT INTO documento_turmas(id,periodo_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,conteudo)VALUES(1,1,10,'7º A',2026,'Texto preservado.');INSERT INTO documento_turma_professores(documento_turma_id,professor_usuario_id)VALUES(1,2)");
+        $deleted=$this->service->deleteProfessorBindings(2,1,'127.0.0.1','phpunit');
+        self::assertSame(2,$deleted);
+        self::assertSame(0,(int)$this->db->query('SELECT COUNT(*) FROM vinculos_professor_turma')->fetchColumn());
+        self::assertSame('Texto preservado.',$this->db->query('SELECT conteudo FROM documento_turmas WHERE id=1')->fetchColumn());
+        self::assertSame(1,(int)$this->db->query('SELECT COUNT(*) FROM documento_turma_professores')->fetchColumn());
+        self::assertSame('EXCLUIR_TODOS',$this->db->query("SELECT acao FROM auditoria WHERE entidade='vinculos_professor_turma'")->fetchColumn());
+    }
+
     public function testAdminCanDeletePeriodAndItsReportsWithoutDeletingBinding(): void
     {
         $this->service->deletePeriod(1,1,'127.0.0.1','phpunit');

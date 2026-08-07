@@ -74,20 +74,29 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame($second,(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
         self::assertLessThan(strpos($second,'Rodrigo'),strpos($second,'Também observei'));
 
+        $third=str_replace('boa evolução','excelente evolução',$second);
+        $saved=$this->service->saveClass(1,$classId,$third,3,2,'PROFESSOR','127.0.0.1','test',[['start'=>mb_strpos($second,'boa'),'delete'=>3,'insert'=>'excelente']]);
+        self::assertSame(4,$saved['version']);
+        self::assertSame($third,(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
+
         $history=$this->db->query("SELECT autor_usuario_id,texto_inserido FROM documento_turma_edicoes WHERE documento_turma_id=$classId ORDER BY id")->fetchAll();
         self::assertSame(2,(int)$history[0]['autor_usuario_id']);
         self::assertSame($first,$history[0]['texto_inserido']);
         self::assertSame(3,(int)$history[1]['autor_usuario_id']);
         self::assertSame('Também observei dificuldade de concentração. ',$history[1]['texto_inserido']);
+        self::assertSame(2,(int)$history[2]['autor_usuario_id']);
+        self::assertSame('excelente',$history[2]['texto_inserido']);
     }
 
-    public function testTextoJaSalvoNaoPodeSerApagadoNemSubstituido(): void
+    public function testProfessorNaoPodeApagarTrechoEscritoPorOutroProfessor(): void
     {
         $classId=$this->classId(10);
-        $this->service->saveClass(1,$classId,'Gabriel evoluiu. Bruno precisa de apoio.',1,2,'PROFESSOR','127.0.0.1','test');
-        try{$this->service->saveClass(1,$classId,'Gabriel evoluiu.',2,3,'PROFESSOR','127.0.0.1','test');self::fail('Uma exclusão não deveria ser aceita.');}
-        catch(HttpException$exception){self::assertSame(422,$exception->status);self::assertSame('SAVED_TEXT_PROTECTED',$exception->errorCode);}
-        self::assertSame('Gabriel evoluiu. Bruno precisa de apoio.',(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
+        $original='Gabriel evoluiu. Bruno precisa de apoio.';
+        $this->service->saveClass(1,$classId,$original,1,2,'PROFESSOR','127.0.0.1','test');
+        $start=(int)mb_strpos($original,'Bruno');$length=mb_strlen('Bruno precisa de apoio.');
+        try{$this->service->saveClass(1,$classId,'Gabriel evoluiu. ',2,3,'PROFESSOR','127.0.0.1','test',[['start'=>$start,'delete'=>$length,'insert'=>'']]);self::fail('Um professor não deveria apagar o trecho de outro.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);self::assertSame('FOREIGN_TEXT_PROTECTED',$exception->errorCode);}
+        self::assertSame($original,(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
     }
 
     public function testConflitoImpedeSobrescreverAtualizacaoDeOutraSessao(): void
@@ -106,6 +115,14 @@ final class CouncilDocumentServiceTest extends TestCase
         $rows=$this->db->query("SELECT professor_usuario_id,finalizado FROM documento_turma_professores WHERE documento_turma_id=$classId ORDER BY professor_usuario_id")->fetchAll();
         self::assertSame([['professor_usuario_id'=>2,'finalizado'=>1],['professor_usuario_id'=>3,'finalizado'=>0]],$rows);
         self::assertSame(1,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='FINALIZAR_TURMA'")->fetchColumn());
+        try{$this->service->finalizeClass(1,$classId,2,'PROFESSOR',false,'127.0.0.1','test');self::fail('O próprio professor não deveria reabrir a participação.');}
+        catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        try{$this->service->saveClass(1,$classId,'Registro coletivo concluído.',2,2,'PROFESSOR','127.0.0.1','test',[['start'=>18,'delete'=>8,'insert'=>'concluído']]);self::fail('A edição deveria permanecer bloqueada após finalizar.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);}
+        $this->service->reopenParticipation(1,$classId,2,1,'COORDENADOR','127.0.0.1','test');
+        $this->service->saveClass(1,$classId,'Registro coletivo concluído.',2,2,'PROFESSOR','127.0.0.1','test',[['start'=>18,'delete'=>8,'insert'=>'concluído']]);
+        self::assertSame('Registro coletivo concluído.',(string)$this->db->query("SELECT conteudo FROM documento_turmas WHERE id=$classId")->fetchColumn());
+        self::assertSame(1,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='LIBERAR_REEDICAO_TURMA'")->fetchColumn());
     }
 
     public function testProfessorNaoEditaTurmaEmQueNaoLeciona(): void
@@ -126,7 +143,7 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame(1,substr_count($html,'data-shared-content'));
         self::assertStringContainsString('Texto coletivo da turma',$html);
         self::assertStringContainsString('>Finalizar turma</button>',$html);
-        self::assertStringContainsString('Histórico de autoria',$html);
+        self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('<details id="turma-',$html);
         self::assertStringNotContainsString('<details id="turma-1" open',$html);
         self::assertStringNotContainsString('Adicionar outro aluno',$html);
@@ -143,7 +160,7 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertStringContainsString('data-opening-content',$html);
         self::assertStringContainsString('Na turma 1º ano, Os estudantes avançaram nas aprendizagens.',$html);
         self::assertStringContainsString('Professor Um',$html);
-        self::assertStringContainsString('Histórico de autoria',$html);
+        self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('Os estudantes avançaram nas aprendizagens.',$html);
         self::assertStringNotContainsString('data-shared-content',$html);
         self::assertSame(1,substr_count($html,'data-final-narrative'));

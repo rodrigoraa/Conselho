@@ -17,8 +17,8 @@ final class BindingController
         Csrf::verify($request->body['_csrf']??null);
         $userId=filter_var($request->body['professor_id']??null,FILTER_VALIDATE_INT);
         $classIds=$this->ids($request->body['turma_ids']??[]);
-        $shift=$this->shift($request->body['turno']??'');
-        if(!$userId||!$classIds||count($classIds)>100)throw new HttpException(422,'VALIDATION_ERROR','Selecione um professor, um turno e ao menos uma turma.');
+        $shifts=$this->shifts($request->body['turnos']??($request->body['turno']??[]));
+        if(!$userId||!$classIds||!$shifts||count($classIds)>100)throw new HttpException(422,'VALIDATION_ERROR','Selecione um professor, ao menos um turno e uma turma.');
         $professor=$this->repository->professorByUser((int)$userId);
         if(!$professor)throw new HttpException(422,'VALIDATION_ERROR','O usuário selecionado não é um professor ativo.');
         $classes=[];foreach($classIds as$classId)$classes[]=$this->api->turma($classId);
@@ -26,7 +26,7 @@ final class BindingController
         $this->repository->db->beginTransaction();$created=0;
         try{
             $insert=$this->repository->db->prepare('INSERT OR IGNORE INTO vinculos_professor_turma(professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(:professor,:turma,:nome,:ano,:turno)');
-            foreach($classes as$class){
+            foreach($shifts as$shift)foreach($classes as$class){
                 $insert->execute([':professor'=>$professor['id'],':turma'=>$class['id'],':nome'=>$class['nome_turma'],':ano'=>$class['ano_letivo'],':turno'=>$shift]);
                 if($insert->rowCount()===0)continue;
                 $created++;$id=(int)$this->repository->db->lastInsertId();
@@ -34,8 +34,8 @@ final class BindingController
             }
             $this->repository->db->commit();
         }catch(\Throwable$exception){if($this->repository->db->inTransaction())$this->repository->db->rollBack();throw$exception;}
-        $periods=$this->repository->db->prepare("SELECT id FROM periodos_pre_conselho WHERE status='ABERTO' AND turno=:turno");$periods->execute([':turno'=>$shift]);
-        foreach($periods->fetchAll(\PDO::FETCH_COLUMN)as$periodId)(new CouncilDocumentService($this->repository))->synchronizePeriod((int)$periodId);
+        $periods=$this->repository->db->prepare("SELECT id FROM periodos_pre_conselho WHERE status='ABERTO' AND turno=:turno");
+        foreach($shifts as$shift){$periods->execute([':turno'=>$shift]);foreach($periods->fetchAll(\PDO::FETCH_COLUMN)as$periodId)(new CouncilDocumentService($this->repository))->synchronizePeriod((int)$periodId);}
         $_SESSION['flash']=$created.' vínculo(s) de turma criado(s).'.($created===0?' As combinações selecionadas já existiam.':'');
         return Response::redirect('/admin#vinculos');
     }
@@ -72,6 +72,13 @@ final class BindingController
         $shift=mb_strtoupper(trim((string)$value));
         if(!in_array($shift,['MATUTINO','VESPERTINO'],true))throw new HttpException(422,'INVALID_SHIFT','Selecione o turno matutino ou vespertino.');
         return$shift;
+    }
+
+    private function shifts(mixed $value): array
+    {
+        $values=is_array($value)?$value:[$value];$shifts=[];
+        foreach($values as$item){$shift=mb_strtoupper(trim((string)$item));if(in_array($shift,['MATUTINO','VESPERTINO'],true))$shifts[]=$shift;}
+        return array_values(array_unique($shifts));
     }
 
     private function ids(mixed $value): array

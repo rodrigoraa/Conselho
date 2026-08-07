@@ -49,7 +49,10 @@ final class CouncilDocumentService
         $editStatement=$this->repository->db->prepare("SELECT edit.*,u.nome autor_nome_atual FROM documento_turma_edicoes edit JOIN documento_turmas dt ON dt.id=edit.documento_turma_id LEFT JOIN usuarios u ON u.id=edit.autor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY edit.documento_turma_id,edit.id");
         $editStatement->execute([':periodo'=>$periodId]);$editsByClass=[];
         foreach($editStatement->fetchAll()as$edit)$editsByClass[(int)$edit['documento_turma_id']][]=$edit;
-        foreach($classes as&$class)$class['edicoes']=$editsByClass[(int)$class['id']]??[];
+        $segmentStatement=$this->repository->db->prepare("SELECT segment.*,u.nome autor_nome_atual FROM documento_turma_segmentos segment JOIN documento_turmas dt ON dt.id=segment.documento_turma_id LEFT JOIN usuarios u ON u.id=segment.autor_usuario_id WHERE dt.periodo_id=:periodo AND segment.conteudo<>'' ORDER BY segment.documento_turma_id,segment.ordem");
+        $segmentStatement->execute([':periodo'=>$periodId]);$segmentsByClass=[];
+        foreach($segmentStatement->fetchAll()as$segment)$segmentsByClass[(int)$segment['documento_turma_id']][]=$segment;
+        foreach($classes as&$class){$class['edicoes']=$editsByClass[(int)$class['id']]??[];$class['segmentos']=$segmentsByClass[(int)$class['id']]??[];}
         unset($class);
 
         $completion=$this->repository->db->prepare("SELECT c.*,u.nome professor_nome,dt.turma_externa_id,dt.turma_nome_snapshot FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN usuarios u ON u.id=c.professor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,u.nome COLLATE NOCASE");
@@ -75,7 +78,7 @@ final class CouncilDocumentService
         return['version'=>(int)$saved['versao'],'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
     }
 
-    public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent): array
+    public function saveClass(int $periodId,int $classDocumentId,string $content,int $version,int $actorId,string $role,string $ip,string $userAgent,array $operations=[]): array
     {
         if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem complementar as turmas.');
         $content=str_replace(["\r\n","\r"],"\n",$content);
@@ -86,16 +89,24 @@ final class CouncilDocumentService
         if($version!==(int)$row['versao'])throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
         $oldContent=str_replace(["\r\n","\r"],"\n",(string)$row['conteudo']);
         if($content===$oldContent)return['version'=>(int)$row['versao'],'saved_at'=>date('H:i',strtotime((string)$row['atualizado_em'])),'updated_by'=>null];
-        $insertions=$this->insertionChunks($oldContent,$content);
-        if($insertions===null)throw new HttpException(422,'SAVED_TEXT_PROTECTED','O texto já salvo não pode ser apagado nem substituído. Use Desfazer ou recarregue a página e apenas acrescente conteúdo.');
+        $author=$this->repository->db->prepare('SELECT nome FROM usuarios WHERE id=:id');$author->execute([':id'=>$actorId]);$authorName=(string)$author->fetchColumn();
+        $segments=$this->segmentsForClass($classDocumentId,$oldContent);
+        if($operations===[]){
+            $insertions=$this->insertionChunks($oldContent,$content);
+            if($insertions===null)throw new HttpException(422,'SAVED_TEXT_PROTECTED','Você só pode alterar os trechos que escreveu. Recarregue a página e tente novamente.');
+            $offset=0;foreach($insertions as$insertion){$operations[]=['start'=>$insertion['position']+$offset,'delete'=>0,'insert'=>$insertion['text']];$offset+=mb_strlen($insertion['text']);}
+        }
+        [$newSegments,$insertions]=$this->applyOwnedOperations($segments,$operations,$actorId,$authorName,$content);
 
         $db=$this->repository->db;$db->beginTransaction();
         try{
             $statement=$db->prepare('UPDATE documento_turmas SET conteudo=:conteudo,versao=versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:turma AND periodo_id=:periodo AND versao=:versao');
             $statement->execute([':conteudo'=>$content,':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId,':versao'=>$version]);
             if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
-            $author=$db->prepare('SELECT nome FROM usuarios WHERE id=:id');$author->execute([':id'=>$actorId]);$authorName=(string)$author->fetchColumn();
             $fresh=$db->prepare('SELECT versao,atualizado_em FROM documento_turmas WHERE id=:turma');$fresh->execute([':turma'=>$classDocumentId]);$saved=$fresh->fetch();
+            $db->prepare('DELETE FROM documento_turma_segmentos WHERE documento_turma_id=:turma')->execute([':turma'=>$classDocumentId]);
+            $segmentInsert=$db->prepare('INSERT INTO documento_turma_segmentos(documento_turma_id,ordem,autor_usuario_id,autor_nome_snapshot,conteudo)VALUES(:turma,:ordem,:usuario,:autor,:conteudo)');
+            foreach($newSegments as$order=>$segment)$segmentInsert->execute([':turma'=>$classDocumentId,':ordem'=>$order+1,':usuario'=>$segment['author_id'],':autor'=>$segment['author_name'],':conteudo'=>$segment['text']]);
             $history=$db->prepare('INSERT INTO documento_turma_edicoes(documento_turma_id,autor_usuario_id,autor_nome_snapshot,texto_inserido,posicao,versao_resultante)VALUES(:turma,:usuario,:autor,:texto,:posicao,:versao)');
             foreach($insertions as$insertion)$history->execute([':turma'=>$classDocumentId,':usuario'=>$actorId,':autor'=>$authorName,':texto'=>$insertion['text'],':posicao'=>$insertion['position'],':versao'=>$saved['versao']]);
             $db->commit();
@@ -106,6 +117,7 @@ final class CouncilDocumentService
     public function finalizeClass(int $periodId,int $classDocumentId,int $actorId,string $role,bool $finalize,string $ip,string $userAgent): void
     {
         if($role!=='PROFESSOR')throw new HttpException(403,'FORBIDDEN','Somente professores podem finalizar sua participação.');
+        if(!$finalize)throw new HttpException(403,'REOPEN_REQUIRES_COORDINATION','Somente a coordenação ou a administração pode liberar uma nova edição.');
         $row=$this->editableClass($periodId,$classDocumentId,$actorId);
         if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto.');
         if($finalize&&trim((string)$row['conteudo'])==='')throw new HttpException(422,'CONTENT_REQUIRED','Escreva no texto da turma antes de finalizar.');
@@ -117,11 +129,56 @@ final class CouncilDocumentService
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
 
+    public function reopenParticipation(int $periodId,int $classDocumentId,int $teacherId,int $actorId,string $role,string $ip,string $userAgent): void
+    {
+        if(!in_array($role,['ADMIN','COORDENADOR'],true))throw new HttpException(403,'FORBIDDEN','Somente a coordenação ou a administração pode liberar uma nova edição.');
+        $statement=$this->repository->db->prepare('SELECT c.finalizado,p.status periodo_status FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE c.documento_turma_id=:turma AND c.professor_usuario_id=:professor AND dt.periodo_id=:periodo');
+        $statement->execute([':turma'=>$classDocumentId,':professor'=>$teacherId,':periodo'=>$periodId]);$row=$statement->fetch();
+        if(!$row)throw new HttpException(404,'PARTICIPATION_NOT_FOUND','Participação do professor não encontrada nesta turma.');
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','O período precisa estar aberto para liberar uma nova edição.');
+        $db=$this->repository->db;$db->beginTransaction();
+        try{
+            $db->prepare('UPDATE documento_turma_professores SET finalizado=0,finalizado_em=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:professor')->execute([':turma'=>$classDocumentId,':professor'=>$teacherId]);
+            $this->repository->audit($actorId,'LIBERAR_REEDICAO_TURMA','documento_turma_professores',$classDocumentId,['professor_usuario_id'=>$teacherId,'finalizado'=>(bool)$row['finalizado']],['professor_usuario_id'=>$teacherId,'finalizado'=>false],$ip,$userAgent);
+            $db->commit();
+        }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
+    }
+
     private function editableClass(int $periodId,int $classDocumentId,int $actorId): array
     {
         $statement=$this->repository->db->prepare('SELECT dt.*,c.finalizado,p.status periodo_status FROM documento_turmas dt JOIN documento_turma_professores c ON c.documento_turma_id=dt.id AND c.professor_usuario_id=:usuario JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE dt.id=:turma AND dt.periodo_id=:periodo');
         $statement->execute([':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId]);
         return$statement->fetch()?:throw new HttpException(403,'FORBIDDEN','Você não leciona nesta turma.');
+    }
+
+    private function segmentsForClass(int $classDocumentId,string $oldContent): array
+    {
+        $statement=$this->repository->db->prepare('SELECT autor_usuario_id,autor_nome_snapshot,conteudo FROM documento_turma_segmentos WHERE documento_turma_id=:turma AND conteudo<>\'\' ORDER BY ordem');
+        $statement->execute([':turma'=>$classDocumentId]);$segments=$statement->fetchAll();
+        $stored=implode('',array_column($segments,'conteudo'));
+        if($stored===$oldContent)return$segments;
+        return$oldContent===''?[]:[['autor_usuario_id'=>null,'autor_nome_snapshot'=>'Conteúdo anterior ao controle por trecho','conteudo'=>$oldContent]];
+    }
+
+    private function applyOwnedOperations(array $segments,array $operations,int $actorId,string $authorName,string $expectedContent): array
+    {
+        if(count($operations)>2000)throw new HttpException(422,'TOO_MANY_EDITS','Foram feitas alterações demais de uma só vez. Recarregue a página e tente novamente.');
+        $characters=[];$owners=[];$names=[];
+        foreach($segments as$segment){$owner=$segment['autor_usuario_id']===null?null:(int)$segment['autor_usuario_id'];$name=(string)$segment['autor_nome_snapshot'];foreach(mb_str_split((string)$segment['conteudo'])as$character){$characters[]=$character;$owners[]=$owner;$names[]=$name;}}
+        $insertions=[];
+        foreach($operations as$operation){
+            if(!is_array($operation)||!isset($operation['start'],$operation['delete'])||!array_key_exists('insert',$operation))throw new HttpException(422,'INVALID_EDIT','A edição enviada é inválida. Recarregue a página.');
+            $start=filter_var($operation['start'],FILTER_VALIDATE_INT);$delete=filter_var($operation['delete'],FILTER_VALIDATE_INT);$insert=str_replace(["\r\n","\r"],"\n",(string)$operation['insert']);
+            if($start===false||$delete===false||$start<0||$delete<0||$start>count($characters)||$start+$delete>count($characters))throw new HttpException(422,'INVALID_EDIT','A posição da edição é inválida. Recarregue a página.');
+            for($index=$start;$index<$start+$delete;$index++)if($owners[$index]!==$actorId)throw new HttpException(422,'FOREIGN_TEXT_PROTECTED','Você só pode alterar ou apagar os trechos que escreveu.');
+            $insertChars=mb_str_split($insert);
+            array_splice($characters,$start,$delete,$insertChars);array_splice($owners,$start,$delete,array_fill(0,count($insertChars),$actorId));array_splice($names,$start,$delete,array_fill(0,count($insertChars),$authorName));
+            if($insert!=='')$insertions[]=['position'=>$start,'text'=>$insert];
+        }
+        if(implode('',$characters)!==$expectedContent)throw new HttpException(422,'EDIT_MISMATCH','Não foi possível validar as alterações. Recarregue a página e tente novamente.');
+        $rebuilt=[];
+        foreach($characters as$index=>$character){$last=count($rebuilt)-1;if($last>=0&&$rebuilt[$last]['author_id']===$owners[$index]&&$rebuilt[$last]['author_name']===$names[$index]){$rebuilt[$last]['text'].=$character;continue;}$rebuilt[]=['author_id'=>$owners[$index],'author_name'=>$names[$index],'text'=>$character];}
+        return[$rebuilt,$insertions];
     }
 
     private function insertionChunks(string $old,string $new): ?array

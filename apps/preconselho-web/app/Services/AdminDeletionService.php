@@ -57,6 +57,24 @@ final class AdminDeletionService
         });
     }
 
+    public function deleteProfessorBindings(int $userId,int $actorId,string $ip,string $userAgent): int
+    {
+        $statement=$this->repository->db->prepare('SELECT v.*,p.id professor_id,u.nome professor_nome FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id WHERE p.usuario_id=:usuario ORDER BY v.turno,v.turma_nome_snapshot');
+        $statement->execute([':usuario'=>$userId]);$bindings=$statement->fetchAll();
+        if($bindings===[])throw new HttpException(404,'BINDINGS_NOT_FOUND','Este professor não possui vínculos para excluir.');
+        $professorId=(int)$bindings[0]['professor_id'];$count=count($bindings);
+        $this->transaction(function()use($professorId,$actorId,$ip,$userAgent,$bindings,$count):void{
+            $this->repository->db->prepare('DELETE FROM vinculos_professor_turma WHERE professor_id=:professor')->execute([':professor'=>$professorId]);
+            $this->repository->audit($actorId,'EXCLUIR_TODOS','vinculos_professor_turma',$professorId,[
+                'professor'=>$bindings[0]['professor_nome'],
+                'quantidade'=>$count,
+                'turmas'=>array_values(array_unique(array_column($bindings,'turma_nome_snapshot'))),
+                'turnos'=>array_values(array_unique(array_column($bindings,'turno'))),
+            ],null,$ip,$userAgent);
+        });
+        return$count;
+    }
+
     public function deleteDiscipline(int $id, int $actorId, string $ip, string $userAgent): void
     {
         $statement=$this->repository->db->prepare('SELECT * FROM disciplinas WHERE id=:id');

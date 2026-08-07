@@ -46,6 +46,11 @@ final class ManagementController
         Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteBinding((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Vínculo de turma excluído.';return Response::redirect('/admin#vinculos');
     }
 
+    public function deleteProfessorBindings(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$count=(new AdminDeletionService($this->repository))->deleteProfessorBindings((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']=$count.' vínculo(s) do professor excluído(s). Os documentos já criados foram preservados.';return Response::redirect('/admin#vinculos');
+    }
+
     public function editUser(Request $request, array $params): Response
     {
         Csrf::verify($request->body['_csrf']??null);
