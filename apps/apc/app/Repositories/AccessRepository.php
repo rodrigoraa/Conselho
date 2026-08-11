@@ -37,10 +37,9 @@ final class AccessRepository
     /**
      * @return array{requirements: array<int, array<string, mixed>>, without_series: array<int, array<string, mixed>>}
      */
-    public function submissionRoster(int$schoolYear):array
+    public function submissionRoster():array
     {
-        $statement=$this->db->prepare("SELECT u.id professor_usuario_id,u.nome professor_nome,v.turma_externa_id id,v.turma_nome_snapshot nome,v.turma_ano_letivo_snapshot ano_letivo FROM usuarios u JOIN professores p ON p.usuario_id=u.id AND p.ativo=1 LEFT JOIN vinculos_professor_turma v ON v.professor_id=p.id AND v.ativo=1 AND v.turma_ano_letivo_snapshot=:ano WHERE u.perfil='PROFESSOR' AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE,v.turma_nome_snapshot COLLATE NOCASE");
-        $statement->execute([':ano'=>$schoolYear]);
+        $statement=$this->db->query("SELECT u.id professor_usuario_id,u.nome professor_nome,v.turma_externa_id id,v.turma_nome_snapshot nome,v.turma_ano_letivo_snapshot ano_letivo FROM usuarios u JOIN professores p ON p.usuario_id=u.id AND p.ativo=1 LEFT JOIN vinculos_professor_turma v ON v.professor_id=p.id AND v.ativo=1 WHERE u.perfil='PROFESSOR' AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE,v.turma_nome_snapshot COLLATE NOCASE");
 
         $professors=[];$requirements=[];
         foreach($statement->fetchAll()as$row){

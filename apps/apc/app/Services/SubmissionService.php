@@ -61,11 +61,8 @@ final class SubmissionService
         $events=$this->availableEvents();$indexed=[];
         foreach($this->submissions->list(0,'COORDENADOR')as$submission)$indexed[(int)$submission['evento_id'].'|'.(int)$submission['professor_usuario_id'].'|'.$submission['etapa'].'|'.$submission['ano_serie']]=$submission;
 
-        $rosters=[];$withoutSeries=[];$trackedEvents=[];
+        $roster=$this->access->submissionRoster();$withoutSeries=[];$trackedEvents=[];
         foreach($events as$event){
-            $schoolYear=(int)$event['ano_letivo'];
-            if(!isset($rosters[$schoolYear]))$rosters[$schoolYear]=$this->access->submissionRoster($schoolYear);
-            $roster=$rosters[$schoolYear];
             foreach($roster['without_series']as$professor)$withoutSeries[(int)$professor['professor_usuario_id']]=$professor;
 
             $professors=[];
