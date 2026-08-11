@@ -3,7 +3,7 @@
 namespace Apc\Controllers;
 
 use Apc\Repositories\{AccessRepository,CurriculumRepository,EventRepository};
-use Apc\Services\{AuthorizationService,PlanService};
+use Apc\Services\{AuthorizationService,EventWindow,PlanService};
 use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
 use Shared\Http\{Request,Response};
@@ -11,14 +11,14 @@ use Shared\Support\View;
 
 final class PlanController
 {
-    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view,private readonly ?CurriculumRepository $curriculum=null) {}
+    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null) {}
 
     public function createForm(Request $request): Response
     {
         $user=$_SESSION['user'];$eventId=(int)($request->query['evento']??0);$selectedEvent=$eventId?$this->events->find($eventId):null;
-        if($eventId&&!$selectedEvent)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
-        $events=$this->events->active();$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;$components=$this->curriculum?->components()??[];$planCurriculum=['componentes'=>[],'habilidades'=>[]];
-        return new Response($this->view->render('plan_form',compact('events','classes','selectedEvent','plan','components','planCurriculum')+['title'=>'Novo Plano de Ação']));
+        if($eventId&&!$selectedEvent)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');if($selectedEvent)$this->window()->assertOpen($selectedEvent);
+        $events=array_values(array_filter($this->events->active(),fn(array$event):bool=>$this->window()->describe($event)['is_open']));$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;$components=$this->curriculum?->components()??[];$planCurriculum=['componentes'=>[],'habilidades'=>[]];$window=null;
+        return new Response($this->view->render('plan_form',compact('events','classes','selectedEvent','plan','components','planCurriculum','window')+['title'=>'Novo Plano de Ação']));
     }
 
     public function create(Request $request): Response
@@ -28,7 +28,7 @@ final class PlanController
 
     public function show(Request $request,array $params): Response
     {
-        $user=$_SESSION['user'];$plan=$this->authorization->plan((int)$params['id'],(int)$user['id'],(string)$user['perfil']);$components=$this->curriculum?->components(null,true)??[];$planCurriculum=$this->curriculum?->planCurriculum((int)$plan['id'])??['componentes'=>[],'habilidades'=>[]];return new Response($this->view->render('plan_form',compact('plan','components','planCurriculum')+['events'=>[],'classes'=>[],'selectedEvent'=>null,'title'=>'Plano de Ação APC']));
+        $user=$_SESSION['user'];$plan=$this->authorization->plan((int)$params['id'],(int)$user['id'],(string)$user['perfil']);$components=$this->curriculum?->components(null,true)??[];$planCurriculum=$this->curriculum?->planCurriculum((int)$plan['id'])??['componentes'=>[],'habilidades'=>[]];$window=$this->window()->describe($plan);return new Response($this->view->render('plan_form',compact('plan','components','planCurriculum','window')+['events'=>[],'classes'=>[],'selectedEvent'=>null,'title'=>'Plano de Ação APC']));
     }
 
     public function update(Request $request,array $params): Response
@@ -45,4 +45,6 @@ final class PlanController
     {
         Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$this->service->reopen($id,(string)($request->body['motivo']??''),$_SESSION['user'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Plano APC reaberto com auditoria.';return Response::redirect('/apc/planos/'.$id);
     }
+
+    private function window(): EventWindow{return$this->eventWindow??new EventWindow();}
 }

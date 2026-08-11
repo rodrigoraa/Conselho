@@ -9,7 +9,7 @@ use Shared\Exceptions\HttpException;
 
 final class DeliveryService
 {
-    public function __construct(private readonly PlanRepository $plans,private readonly DeliveryRepository $deliveries,private readonly SettingsRepository $settings,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly SecretariaApiClient $api) {}
+    public function __construct(private readonly PlanRepository $plans,private readonly DeliveryRepository $deliveries,private readonly SettingsRepository $settings,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly SecretariaApiClient $api,private readonly ?EventWindow $eventWindow=null) {}
 
     public function students(int $planId,array $user): array
     {
@@ -27,12 +27,12 @@ final class DeliveryService
         }catch(\Throwable){$error='Não foi possível carregar os alunos desta turma. Os registros já salvos continuam disponíveis.';}
         foreach($localByStudent as$delivery)$students[]=$this->studentRow((int)$delivery['aluno_id_externo'],(string)$delivery['aluno_nome_snapshot'],$delivery,$attachments,true);
         usort($students,static fn(array $a,array $b):int=>strnatcasecmp($a['nome'],$b['nome']));
-        return compact('plan','students','error')+['settings'=>$this->settings->all()];
+        return compact('plan','students','error')+['settings'=>$this->settings->all(),'window'=>$this->window()->describe($plan)];
     }
 
     public function save(int $planId,int $studentId,array $input,array $user,string $ip,string $userAgent): int
     {
-        $plan=$this->authorization->editablePlan($planId,(int)$user['id'],(string)$user['perfil']);$before=$this->deliveries->findByStudent($planId,$studentId);$student=null;
+        $plan=$this->authorization->editablePlan($planId,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);$before=$this->deliveries->findByStudent($planId,$studentId);$student=null;
         try{$candidate=$this->api->aluno($studentId);if((int)($candidate['id_turma']??0)!==(int)$plan['turma_id_externo'])throw new HttpException(422,'APC_STUDENT_CLASS_MISMATCH','O aluno não pertence à turma deste plano.');$student=$candidate;}
         catch(HttpException $exception){throw$exception;}
         catch(\Throwable){if($before)$student=['id'=>$studentId,'nome_completo'=>$before['aluno_nome_snapshot'],'id_turma'=>$plan['turma_id_externo']];else throw new HttpException(503,'SECRETARIA_UNAVAILABLE','Não foi possível validar o aluno na Secretaria API. Tente novamente.');}
@@ -57,4 +57,6 @@ final class DeliveryService
     {
         return['id'=>$id,'nome'=>$name,'entrega'=>$delivery,'anexos'=>$delivery?($attachments[(int)$delivery['id']]??[]):[],'fora_lista_atual'=>$outsideCurrentList];
     }
+
+    private function window(): EventWindow{return$this->eventWindow??new EventWindow();}
 }

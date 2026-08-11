@@ -46,6 +46,8 @@ A migration `apps/apc/database/migrations/001_initial.sql` cria:
 
 A migration incremental `002_curriculo_estruturado.sql` acrescenta `etapa` e `ano_serie` ao plano sem remover os campos legados e cria o catálogo local (`apc_componentes_curriculares`, `apc_habilidades_curriculares`, `apc_habilidade_anos_series`) e as relações interdisciplinares (`apc_plano_componentes`, `apc_plano_habilidades`). Os textos oficiais e os nomes/códigos selecionados são preservados também como snapshots no plano.
 
+A migration `003_calendario_escolar_importacao.sql` acrescenta a chave estável e a página da fonte oficial aos eventos. A chave possui índice único e permite reaplicar o calendário sem duplicidade.
+
 Para criar ou atualizar somente `apc.db`:
 
 ```bash
@@ -81,11 +83,29 @@ Somente ADMIN acessa `/apc/admin/curriculo` para importar os CSVs versionados, c
 
 `/apc/calendario` reutiliza `apc_eventos` como fonte única. A visualização mensal é gerada em PHP, permite mês anterior, hoje, mês seguinte e seleção dos anos realmente existentes. Em telas pequenas vira uma lista cronológica. `/apc/eventos/{id}` mostra os detalhes; professor vê apenas seus planos, enquanto coordenação/admin recebe contagem agregada. O dashboard mostra os cinco próximos eventos ativos a partir da data atual, em ordem, com acesso ao calendário completo.
 
+O calendário oficial de 2026 da EE São José está versionado em `apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv`, com referência ao Anexo I da Resolução/SED nº 4490, de 2/12/2025, à Ata nº 14/2025 e ao processo nº 29/090121/2022. São 18 APCs:
+
+- jornadas formativas (10): 03, 04, 05 e 06/02; 09/05; 04, 05, 06 e 07/08; 02/10;
+- emendas de feriado (3): 20/04; 13 e 16/10;
+- conselhos de classe (5): 30/04; 16/07; 30/09; 05 e 07/12.
+
+Depois da migration, importe pelo botão **Importar calendário oficial** em `/apc/admin` ou pela linha de comando:
+
+```bash
+sudo -u www-data php scripts/console.php apc-importar-calendario
+# equivalente:
+sudo -u www-data composer apc:import-calendario
+```
+
+O importador valida o CSV inteiro antes de gravar. Ele atualiza pela chave estável e, na primeira execução, concilia um evento já cadastrado com o mesmo ano, data e tipo para preservar seu ID e os planos ligados a ele. Em caso de mais de um candidato, interrompe a transação em vez de escolher silenciosamente. Eventos ausentes no CSV não são apagados. Toda execução registra `CALENDARIO_ESCOLAR_IMPORTADO` na auditoria.
+
+Cada evento ativo possui uma janela automática e inclusiva de preenchimento: abre 7 dias corridos antes da data da APC e encerra ao final do 7º dia posterior. Por exemplo, uma APC em 15/08 fica aberta de 08/08 a 22/08. Fora desse intervalo, planos, entregas e anexos permanecem consultáveis, mas criação, alteração, finalização, reabertura, registro de entrega e inclusão/remoção de anexos são bloqueados também no servidor. Downloads históricos continuam permitidos. O dashboard separa APCs abertas das que ainda aguardam abertura, e o calendário mostra a situação de cada evento.
+
 ## Perfis e fluxos
 
 ### Professor
 
-O professor vê o calendário ativo e somente seus planos. A criação valida o vínculo ativo em `vinculos_professor_turma`. O Plano de Ação pode ser salvo como rascunho, receber registros e vários anexos por estudante e ser finalizado. Plano finalizado fica somente leitura até uma reabertura auditada.
+O professor vê o calendário ativo e somente seus planos. A criação valida o vínculo ativo em `vinculos_professor_turma` e a janela do evento. O Plano de Ação pode ser salvo como rascunho, receber registros e vários anexos por estudante e ser finalizado enquanto a APC estiver aberta. Plano finalizado fica somente leitura até uma reabertura auditada dentro da mesma janela; depois do encerramento, todo o conteúdo permanece apenas para consulta.
 
 ### Coordenação
 
@@ -125,6 +145,7 @@ O administrador possui a visão global, gerencia eventos, origem SED/escola, dad
 /apc/planos/{id}/entregas/{aluno}
 /apc/entregas/{id}/anexos
 /apc/anexos/{id}/excluir
+/apc/admin/calendario/importar
 /apc/admin/eventos
 /apc/admin/eventos/{id}
 /apc/admin/eventos/{id}/cancelar
@@ -190,10 +211,13 @@ sudo -u www-data php scripts/console.php migrate-apc
 # 6. Importe o catálogo curricular versionado.
 sudo -u www-data php scripts/console.php apc-importar-curriculo
 
-# 7. Verifique os bancos sem modificar dados do Conselho.
+# 7. Importe o calendário escolar oficial versionado.
+sudo -u www-data php scripts/console.php apc-importar-calendario
+
+# 8. Verifique os bancos sem modificar dados do Conselho.
 sqlite3 /var/www/data/apc.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
 
-# 8. Faça smoke test autenticado em /, /conselho, /apc, /apc/calendario e em um download autorizado.
+# 9. Faça smoke test autenticado em /, /conselho, /apc, /apc/calendario e em um download autorizado.
 ```
 
 Nenhum novo virtual host, processo PHP ou serviço colaborativo é necessário. Não reinicie o Hocuspocus por causa do APC. Recarregue o PHP-FPM apenas se o procedimento operacional do servidor exigir a leitura de novo `.env` ou `php.ini`.
@@ -236,4 +260,4 @@ npm run collaboration:check
 npm run collaboration:verify
 ```
 
-A suíte APC cobre portal, proteção de rotas, vínculo de turma, IDOR entre professores, acesso global da coordenação, calendário, plano, finalização/reabertura, entregas, notas, indisponibilidade da Secretaria API, PDF/JPEG/PNG, MIME falso, limite, múltiplos anexos, download autorizado, bloqueio não autorizado e path traversal.
+A suíte APC cobre portal, proteção de rotas, vínculo de turma, IDOR entre professores, acesso global da coordenação, calendário oficial idempotente e conciliação, limites inclusivos da janela de 7 dias, bloqueio de escrita após o prazo, filtro visual e validação server-side de componentes por etapa, plano, finalização/reabertura, entregas, notas, indisponibilidade da Secretaria API, PDF/JPEG/PNG, MIME falso, limite, múltiplos anexos, download autorizado, bloqueio não autorizado e path traversal.

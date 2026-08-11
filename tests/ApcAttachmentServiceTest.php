@@ -4,7 +4,7 @@ namespace Tests;
 
 use Apc\Controllers\AttachmentController;
 use Apc\Repositories\{AccessRepository,AuditRepository,DeliveryRepository,PlanRepository};
-use Apc\Services\{AttachmentService,AuthorizationService};
+use Apc\Services\{AttachmentService,AuthorizationService,EventWindow};
 use Shared\Exceptions\HttpException;
 use Shared\Http\Request;
 
@@ -24,7 +24,7 @@ final class ApcAttachmentServiceTest extends ApcTestCase
 
     private function service(int $maxBytes=10485760): array
     {
-        $main=$this->mainDatabase();$this->seedMain($main);$db=$this->apcDatabase();$this->seedEvent($db);$db->exec("INSERT INTO apc_planos(id,evento_id,professor_usuario_id,professor_nome_snapshot,turma_id_externo,turma_nome_snapshot,componente_curricular)VALUES(1,1,3,'Professor Um',10,'7º A','Matemática');INSERT INTO apc_entregas(id,plano_id,aluno_id_externo,aluno_nome_snapshot,entregue)VALUES(1,1,100,'Ana',1)");$deliveries=new DeliveryRepository($db);$authorization=new AuthorizationService(new PlanRepository($db),new AccessRepository($main));$service=new AttachmentService($deliveries,new AuditRepository($db),$authorization,$this->directory,$maxBytes,static fn(string$path):bool=>is_file($path),static fn(string$from,string$to):bool=>rename($from,$to));return[$db,$service];
+        $main=$this->mainDatabase();$this->seedMain($main);$db=$this->apcDatabase();$this->seedEvent($db);$db->exec("INSERT INTO apc_planos(id,evento_id,professor_usuario_id,professor_nome_snapshot,turma_id_externo,turma_nome_snapshot,componente_curricular)VALUES(1,1,3,'Professor Um',10,'7º A','Matemática');INSERT INTO apc_entregas(id,plano_id,aluno_id_externo,aluno_nome_snapshot,entregue)VALUES(1,1,100,'Ana',1)");$deliveries=new DeliveryRepository($db);$authorization=new AuthorizationService(new PlanRepository($db),new AccessRepository($main));$service=new AttachmentService($deliveries,new AuditRepository($db),$authorization,$this->directory,$maxBytes,static fn(string$path):bool=>is_file($path),static fn(string$from,string$to):bool=>rename($from,$to),new EventWindow('2026-08-11'));return[$db,$service];
     }
 
     public function testStoresPdfJpegAndPngWithRandomNamesHashAndAuthorizedPrivateDownload(): void
@@ -55,6 +55,11 @@ final class ApcAttachmentServiceTest extends ApcTestCase
     {
         [$db,$service]=$this->service();$teacher=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$id=$service->storeMany(1,[$this->file('a.png',(string)base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))],$teacher,'127.0.0.1','phpunit')[0];$path=$service->file($id,$teacher)['caminho_absoluto'];$db->exec("UPDATE apc_planos SET status='FINALIZADO'");
         try{$service->delete($id,$teacher,'127.0.0.1','phpunit');self::fail('Remoção deveria ser bloqueada.');}catch(HttpException $exception){self::assertSame('APC_PLAN_LOCKED',$exception->errorCode);}self::assertFileExists($path);
+    }
+
+    public function testClosedWindowPreventsAttachmentUploadAndRemoval():void
+    {
+        [$db,$service]=$this->service();$teacher=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$id=$service->storeMany(1,[$this->file('a.png',(string)base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))],$teacher,'127.0.0.1','phpunit')[0];$path=$service->file($id,$teacher)['caminho_absoluto'];$db->exec("UPDATE apc_eventos SET data='2026-07-01' WHERE id=1");try{$service->delete($id,$teacher,'127.0.0.1','phpunit');self::fail('Remoção fora da janela deveria ser bloqueada.');}catch(HttpException$exception){self::assertSame('APC_EVENT_CLOSED',$exception->errorCode);}self::assertFileExists($path);try{$service->storeMany(1,[$this->file('b.png',(string)base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))],$teacher,'127.0.0.1','phpunit');self::fail('Upload fora da janela deveria ser bloqueado.');}catch(HttpException$exception){self::assertSame('APC_EVENT_CLOSED',$exception->errorCode);}
     }
 
     private function file(string $name,string $contents): array

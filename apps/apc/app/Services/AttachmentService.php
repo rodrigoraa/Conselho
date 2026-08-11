@@ -13,21 +13,21 @@ final class AttachmentService
     private readonly Closure $isUploaded;
     private readonly Closure $moveUploaded;
 
-    public function __construct(private readonly DeliveryRepository $deliveries,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly string $uploadsPath,private readonly int $maxBytes,?Closure $isUploaded=null,?Closure $moveUploaded=null)
+    public function __construct(private readonly DeliveryRepository $deliveries,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly string $uploadsPath,private readonly int $maxBytes,?Closure $isUploaded=null,?Closure $moveUploaded=null,private readonly ?EventWindow $eventWindow=null)
     {
         $this->isUploaded=$isUploaded??static fn(string $path):bool=>is_uploaded_file($path);
         $this->moveUploaded=$moveUploaded??static fn(string $from,string $to):bool=>move_uploaded_file($from,$to);
     }
 
-    public static function fromEnvironment(DeliveryRepository $deliveries,AuditRepository $audit,AuthorizationService $authorization,string $root): self
+    public static function fromEnvironment(DeliveryRepository $deliveries,AuditRepository $audit,AuthorizationService $authorization,string $root,?EventWindow $eventWindow=null): self
     {
-        return new self($deliveries,$audit,$authorization,Env::get('APC_UPLOADS_PATH',$root.'/storage/apc-uploads')??'',Env::int('APC_UPLOAD_MAX_BYTES',10485760));
+        return new self($deliveries,$audit,$authorization,Env::get('APC_UPLOADS_PATH',$root.'/storage/apc-uploads')??'',Env::int('APC_UPLOAD_MAX_BYTES',10485760),null,null,$eventWindow);
     }
 
     public function storeMany(int $deliveryId,array $files,array $user,string $ip,string $userAgent): array
     {
         $delivery=$this->deliveries->find($deliveryId)??throw new HttpException(404,'APC_DELIVERY_NOT_FOUND','Entrega não encontrada.');
-        $this->authorization->editablePlan((int)$delivery['plano_id'],(int)$user['id'],(string)$user['perfil']);
+        $plan=$this->authorization->editablePlan((int)$delivery['plano_id'],(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);
         $limit=max(1,Env::int('APC_UPLOAD_MAX_FILES',5));if(!$files||count($files)>$limit)throw new HttpException(422,'APC_UPLOAD_COUNT','Selecione entre 1 e '.$limit.' arquivo(s) por envio.');
         $root=$this->ensureRoot();$stagingDir=$root.DIRECTORY_SEPARATOR.'.tmp';$this->ensureDirectory($stagingDir);$prepared=[];
         try{
@@ -55,7 +55,7 @@ final class AttachmentService
 
     public function delete(int $attachmentId,array $user,string $ip,string $userAgent): int
     {
-        $attachment=$this->file($attachmentId,$user);$this->authorization->editablePlan((int)$attachment['plano_id'],(int)$user['id'],(string)$user['perfil']);
+        $attachment=$this->file($attachmentId,$user);$plan=$this->authorization->editablePlan((int)$attachment['plano_id'],(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);
         $absolute=$attachment['caminho_absoluto'];$quarantine=$absolute.'.deleting-'.bin2hex(random_bytes(8));if(!rename($absolute,$quarantine))throw new HttpException(500,'APC_ATTACHMENT_DELETE_FAILED','Não foi possível preparar a remoção segura do anexo.');
         $this->deliveries->db->beginTransaction();
         try{$this->deliveries->deleteAttachment($attachmentId);$this->audit->record((int)$user['id'],'EXCLUIR','apc_anexos',$attachmentId,array_diff_key($attachment,['caminho_absoluto'=>true]),null,$ip,$userAgent);$this->deliveries->db->commit();}
@@ -96,4 +96,6 @@ final class AttachmentService
     {
         if(!is_dir($directory)&&!mkdir($directory,0770,true)&&!is_dir($directory))throw new \RuntimeException('Diretório privado do APC indisponível.');
     }
+
+    private function window(): EventWindow{return$this->eventWindow??new EventWindow();}
 }

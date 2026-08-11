@@ -1,8 +1,8 @@
 <?php declare(strict_types=1);
 
 use PreConselho\Support\Cpf;
-use Apc\Repositories\{AuditRepository,CurriculumRepository};
-use Apc\Services\CurriculumImporter;
+use Apc\Repositories\{AuditRepository,CurriculumRepository,EventRepository};
+use Apc\Services\{CalendarImporter,CurriculumImporter};
 use Shared\Database\ConnectionFactory;
 use Shared\Env;
 
@@ -34,6 +34,10 @@ try{
         echo "Componentes processados: {$summary['componentes']}\nHabilidades únicas processadas: {$summary['habilidades']}\nAssociações ano/série processadas: {$summary['associacoes']}\nLinhas curriculares lidas: {$summary['linhas']}\n";
         foreach($summary['advertencias']as$warning)echo "Advertência: $warning\n";
         echo "Importação curricular do APC concluída.\n";
+    }elseif($command==='apc-importar-calendario'){
+        $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';$db=ConnectionFactory::apc($path);$importer=new CalendarImporter(new EventRepository($db),new AuditRepository($db),$root.'/apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv');$summary=$importer->import();
+        echo "Eventos processados: {$summary['total']}\nCriados: {$summary['criados']}\nAtualizados: {$summary['atualizados']}\nConciliados: {$summary['conciliados']}\nInalterados: {$summary['inalterados']}\n";
+        echo "Jornadas formativas: {$summary['por_tipo']['JORNADA_FORMATIVA']}\nEmendas de feriado: {$summary['por_tipo']['EMENDA_FERIADO']}\nConselhos de classe: {$summary['por_tipo']['CONSELHO_CLASSE']}\nCalendário escolar do APC importado.\n";
     }else{
         $path=Env::get('PRECONSELHO_DB_PATH',$root.'/storage/preconselho.db')??'';
         $db=ConnectionFactory::preconselho($path);
@@ -71,7 +75,7 @@ try{
         if($statement->rowCount()!==1)throw new RuntimeException('Usuário não encontrado pelo e-mail informado.');
         echo 'CPF vinculado. O usuário já pode entrar com '.Cpf::format($cpf).".\n";
         }else{
-            echo "Comandos: migrate | migrate-apc | apc-importar-curriculo | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+            echo "Comandos: migrate | migrate-apc | apc-importar-curriculo | apc-importar-calendario | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
         }
     }
 }catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

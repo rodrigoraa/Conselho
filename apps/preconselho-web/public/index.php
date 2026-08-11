@@ -43,6 +43,7 @@ try{
  $r->add('POST','/apc/admin/curriculo/habilidades',fn($q)=>$apcModule()->curriculumAdmin->createAbility($q),$admin);
  $r->add('POST','/apc/admin/curriculo/habilidades/{id}',fn($q,$p)=>$apcModule()->curriculumAdmin->updateAbility($q,$p),$admin);
  $r->add('POST','/apc/admin/curriculo/habilidades/{id}/alternar',fn($q,$p)=>$apcModule()->curriculumAdmin->toggleAbility($q,$p),$admin);
+ $r->add('POST','/apc/admin/calendario/importar',fn($q)=>$apcModule()->admin->importSchoolCalendar($q),$admin);
  $r->add('POST','/apc/admin/eventos',fn($q)=>$apcModule()->admin->createEvent($q),$admin);
  $r->add('POST','/apc/admin/eventos/{id}',fn($q,$p)=>$apcModule()->admin->updateEvent($q,$p),$admin);
  $r->add('POST','/apc/admin/eventos/{id}/cancelar',fn($q,$p)=>$apcModule()->admin->cancelEvent($q,$p),$admin);

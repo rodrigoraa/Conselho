@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use Apc\Support\Module as ApcModule;
 use PreConselho\Controllers\{PortalController,WebController};
 use PreConselho\Integration\SecretariaApiClient;
 use PreConselho\Middlewares\AuthMiddleware;
@@ -26,8 +27,9 @@ final class PortalRoutingTest extends ApcTestCase
 
     public function testPortalContainsBothSystemCardsAndCouncilAliasOpensOldHandler(): void
     {
-        $_SESSION['user']=['id'=>1,'nome'=>'Rodrigo Silva','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/';$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$portal=(new PortalController($view))->dashboard();self::assertStringContainsString('Conselho de Classe',$portal->body);self::assertStringContainsString('Acessar Conselho',$portal->body);self::assertStringContainsString('APCs',$portal->body);self::assertStringContainsString('Acessar APCs',$portal->body);
-        $db=$this->mainDatabase();$this->seedMain($db);$_SERVER['REQUEST_URI']='/conselho';$web=new WebController(new AppRepository($db),$view,new SecretariaApiClient());$router=new Router();$router->add('GET','/conselho',fn()=>$web->dashboard(),[new AuthMiddleware()]);self::assertStringContainsString('Conselhos em andamento',$router->dispatch(new Request('GET','/conselho',[],[],[]))->body);
+        $_SESSION['user']=['id'=>1,'nome'=>'Rodrigo Silva','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/';$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$portal=(new PortalController($view))->dashboard();self::assertStringContainsString('Conselho de Classe',$portal->body);self::assertStringContainsString('Acessar Conselho',$portal->body);self::assertStringContainsString('APCs',$portal->body);self::assertStringContainsString('Acessar APCs',$portal->body);self::assertStringContainsString('/assets/logo_escola.png',$portal->body);self::assertStringContainsString('EE São José',$portal->body);self::assertStringContainsString('Sistemas',$portal->body);
+        $db=$this->mainDatabase();$this->seedMain($db);$_SERVER['REQUEST_URI']='/conselho';$web=new WebController(new AppRepository($db),$view,new SecretariaApiClient());$router=new Router();$router->add('GET','/conselho',fn()=>$web->dashboard(),[new AuthMiddleware()]);$council=$router->dispatch(new Request('GET','/conselho',[],[],[]));self::assertStringContainsString('Conselhos em andamento',$council->body);self::assertStringContainsString('Nesta área',$council->body);self::assertStringContainsString('Painel do Conselho',$council->body);self::assertStringContainsString('Administração',$council->body);
+        $_SERVER['REQUEST_URI']='/apc';$apc=(new ApcModule($this->apcDatabase(),$db,new SecretariaApiClient(),dirname(__DIR__)))->dashboard->index(new Request('GET','/apc',[],[],[]));self::assertStringContainsString('Painel',$apc->body);self::assertStringContainsString('Calendário',$apc->body);self::assertStringContainsString('Relatórios',$apc->body);self::assertStringContainsString('Eventos e parâmetros',$apc->body);self::assertStringContainsString('Currículo',$apc->body);
     }
 
     public function testCpfLoginStillRedirectsToPortalRoot(): void

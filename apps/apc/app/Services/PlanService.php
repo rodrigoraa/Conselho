@@ -12,12 +12,12 @@ final class PlanService
 {
     private const STAGES=['EF_AI','EF_AF','EM'];
     private const YEARS=['EF1','EF2','EF3','EF4','EF5','EF6','EF7','EF8','EF9','EM1','EM2','EM3'];
-    public function __construct(private readonly PlanRepository $plans,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly ?SecretariaApiClient $api=null,private readonly ?CurriculumRepository $curriculum=null) {}
+    public function __construct(private readonly PlanRepository $plans,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly ?SecretariaApiClient $api=null,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null) {}
 
     public function create(array $input,array $user,string $ip,string $userAgent): int
     {
         $eventId=Input::positiveInt($input['evento_id']??null);$event=$this->events->find($eventId)??throw new HttpException(422,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
-        if($event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_CANCELLED','Não é possível criar plano para evento cancelado.');
+        $this->window()->assertOpen($event);
         $classId=Input::positiveInt($input['turma_id_externo']??null);$class=$this->access->classFor($classId,(int)$user['id'],(string)$user['perfil']);
         if(!$class)throw new HttpException(403,'APC_CLASS_FORBIDDEN','Você não está vinculado a esta turma.');
         $totalStudents=null;if($this->api)try{$totalStudents=count($this->api->alunosDaTurma($classId));}catch(\Throwable){}
@@ -30,7 +30,7 @@ final class PlanService
 
     public function update(int $id,array $input,array $user,string $ip,string $userAgent): void
     {
-        $before=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$structured=$this->curriculumFields($input,$id);$data=$this->fields($input,$structured);
+        $before=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($before);$structured=$this->curriculumFields($input,$id);$data=$this->fields($input,$structured);
         $this->plans->db->beginTransaction();
         try{$this->plans->update($id,$data);if($structured){$old=$this->curriculum?->planCurriculum($id);$this->curriculum?->syncPlan($id,$structured['componentes'],$structured['habilidades']);$this->audit->record((int)$user['id'],'CURRICULO_PLANO_ATUALIZADO','apc_planos',$id,$old,$this->curriculumAudit($structured),$ip,$userAgent);}$this->audit->record((int)$user['id'],'ALTERAR','apc_planos',$id,$this->auditFields($before),$data,$ip,$userAgent);$this->plans->db->commit();}
         catch(\Throwable $exception){if($this->plans->db->inTransaction())$this->plans->db->rollBack();throw$exception;}
@@ -38,7 +38,7 @@ final class PlanService
 
     public function finalize(int $id,array $user,string $ip,string $userAgent): void
     {
-        $plan=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);
+        $plan=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);
         foreach(['conteudos','descricao_atividade','estrategia_devolucao']as$field)if(trim((string)$plan[$field])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');$selected=$this->curriculum?->planCurriculum($id);if($selected&&$selected['componentes']) {if(!$selected['habilidades']&&trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Selecione ao menos uma habilidade ou preencha o complemento curricular.');}elseif(trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');
         $this->plans->db->beginTransaction();
         try{$this->plans->finalize($id);$this->audit->record((int)$user['id'],'FINALIZAR','apc_planos',$id,['status'=>'RASCUNHO'],['status'=>'FINALIZADO'],$ip,$userAgent);$this->plans->db->commit();}
@@ -48,7 +48,7 @@ final class PlanService
     public function reopen(int $id,string $reason,array $user,string $ip,string $userAgent): void
     {
         if(!in_array($user['perfil'],['ADMIN','COORDENADOR'],true))throw new HttpException(403,'APC_FORBIDDEN','Apenas coordenação ou administração pode reabrir o plano.');
-        $plan=$this->authorization->plan($id,(int)$user['id'],(string)$user['perfil']);$reason=Input::text($reason,'Motivo da reabertura',1000);
+        $plan=$this->authorization->plan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);$reason=Input::text($reason,'Motivo da reabertura',1000);
         if($plan['status']!=='FINALIZADO')throw new HttpException(422,'APC_INVALID_STATUS','Somente planos finalizados podem ser reabertos.');
         $this->plans->db->beginTransaction();
         try{$this->plans->reopen($id,(int)$user['id'],$reason);$this->audit->record((int)$user['id'],'REABRIR','apc_planos',$id,['status'=>'FINALIZADO'],['status'=>'RASCUNHO','motivo'=>$reason],$ip,$userAgent);$this->plans->db->commit();}
@@ -81,4 +81,6 @@ final class PlanService
     {
         return array_intersect_key($plan,array_flip(['componente_curricular','competencias_habilidades','conteudos','descricao_atividade','estrategia_devolucao','status']));
     }
+
+    private function window(): EventWindow{return$this->eventWindow??new EventWindow();}
 }

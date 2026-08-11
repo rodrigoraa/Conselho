@@ -42,6 +42,16 @@ final class EventRepository
         $statement=$this->db->prepare('SELECT * FROM apc_eventos WHERE id=:id');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;
     }
 
+    public function findByImportKey(string $key): ?array
+    {
+        $statement=$this->db->prepare('SELECT * FROM apc_eventos WHERE chave_importacao=:chave');$statement->execute([':chave'=>$key]);return$statement->fetch()?:null;
+    }
+
+    public function equivalents(int $year,string $date,string $type): array
+    {
+        $statement=$this->db->prepare('SELECT * FROM apc_eventos WHERE ano_letivo=:ano AND data=:data AND tipo=:tipo AND chave_importacao IS NULL ORDER BY id');$statement->execute([':ano'=>$year,':data'=>$date,':tipo'=>$type]);return$statement->fetchAll();
+    }
+
     public function insert(array $data): int
     {
         $statement=$this->db->prepare('INSERT INTO apc_eventos(ano_letivo,data,titulo,tipo,origem,descricao,justificativa,numero_processo,documento_referencia,atividade_fornecida_sed,status,criado_por)VALUES(:ano,:data,:titulo,:tipo,:origem,:descricao,:justificativa,:processo,:documento,:sed,:status,:usuario)');
@@ -54,6 +64,18 @@ final class EventRepository
         $statement->execute($this->parameters($data)+[':id'=>$id]);
     }
 
+    public function insertImported(array $data,int $userId): int
+    {
+        $statement=$this->db->prepare('INSERT INTO apc_eventos(ano_letivo,data,titulo,tipo,origem,descricao,justificativa,numero_processo,documento_referencia,atividade_fornecida_sed,status,criado_por,chave_importacao,fonte_pagina)VALUES(:ano,:data,:titulo,:tipo,:origem,:descricao,NULL,:processo,:documento,0,:status,:usuario,:chave,:pagina)');
+        $statement->execute($this->importParameters($data)+[':usuario'=>$userId]);return(int)$this->db->lastInsertId();
+    }
+
+    public function updateImported(int $id,array $data): void
+    {
+        $statement=$this->db->prepare('UPDATE apc_eventos SET ano_letivo=:ano,data=:data,titulo=:titulo,tipo=:tipo,origem=:origem,descricao=:descricao,numero_processo=:processo,documento_referencia=:documento,status=:status,chave_importacao=:chave,fonte_pagina=:pagina,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
+        $statement->execute($this->importParameters($data)+[':id'=>$id]);
+    }
+
     public function cancel(int $id): void
     {
         $this->db->prepare("UPDATE apc_eventos SET status='CANCELADO',atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$id]);
@@ -62,5 +84,10 @@ final class EventRepository
     private function parameters(array $data): array
     {
         return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':justificativa'=>$data['justificativa'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':sed'=>$data['atividade_fornecida_sed'],':status'=>$data['status']];
+    }
+
+    private function importParameters(array $data): array
+    {
+        return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':status'=>$data['status'],':chave'=>$data['chave_importacao'],':pagina'=>$data['fonte_pagina']];
     }
 }

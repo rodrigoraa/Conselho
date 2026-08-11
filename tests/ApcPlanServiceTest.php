@@ -3,15 +3,15 @@
 namespace Tests;
 
 use Apc\Repositories\{AccessRepository,AuditRepository,EventRepository,PlanRepository};
-use Apc\Services\{AuthorizationService,PlanService};
+use Apc\Services\{AuthorizationService,EventWindow,PlanService};
 use PreConselho\Integration\SecretariaApiClient;
 use Shared\Exceptions\HttpException;
 
 final class ApcPlanServiceTest extends ApcTestCase
 {
-    private function services(?SecretariaApiClient $api=null): array
+    private function services(?SecretariaApiClient $api=null,string $today='2026-08-11'): array
     {
-        $main=$this->mainDatabase();$this->seedMain($main);$apc=$this->apcDatabase();$this->seedEvent($apc);$plans=new PlanRepository($apc);$access=new AccessRepository($main);$audit=new AuditRepository($apc);$authorization=new AuthorizationService($plans,$access);return[$apc,$plans,$authorization,new PlanService($plans,new EventRepository($apc),$access,$audit,$authorization,$api)];
+        $main=$this->mainDatabase();$this->seedMain($main);$apc=$this->apcDatabase();$this->seedEvent($apc);$plans=new PlanRepository($apc);$access=new AccessRepository($main);$audit=new AuditRepository($apc);$authorization=new AuthorizationService($plans,$access);return[$apc,$plans,$authorization,new PlanService($plans,new EventRepository($apc),$access,$audit,$authorization,$api,null,new EventWindow($today))];
     }
 
     private function input(int $classId=10): array
@@ -47,5 +47,16 @@ final class ApcPlanServiceTest extends ApcTestCase
     public function testCreationSnapshotsStudentTotalWithoutCopyingStudentRegistry(): void
     {
         $api=new class extends SecretariaApiClient{public function alunosDaTurma(int$id):array{return[['id'=>1],['id'=>2],['id'=>3]];}};[$db,$plans,,$service]=$this->services($api);$id=$service->create($this->input(),['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');self::assertSame(3,(int)$plans->find($id)['total_alunos_snapshot']);self::assertSame(0,(int)$db->query('SELECT COUNT(*) FROM apc_entregas')->fetchColumn());
+    }
+
+    public function testCreationIsRejectedBeforeOpeningAndAfterClosing(): void
+    {
+        $teacher=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];[, , ,$before]=$this->services(null,'2026-08-07');try{$before->create($this->input(),$teacher,'127.0.0.1','phpunit');self::fail('APC ainda não aberta deveria bloquear criação.');}catch(HttpException$exception){self::assertSame('APC_EVENT_NOT_OPEN',$exception->errorCode);}
+        [, , ,$after]=$this->services(null,'2026-08-23');try{$after->create($this->input(),$teacher,'127.0.0.1','phpunit');self::fail('APC encerrada deveria bloquear criação.');}catch(HttpException$exception){self::assertSame('APC_EVENT_CLOSED',$exception->errorCode);}
+    }
+
+    public function testExistingDraftCannotBeChangedWhenEventWindowCloses():void
+    {
+        [$db,,$authorization,$service]=$this->services();$teacher=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$id=$service->create($this->input(),$teacher,'127.0.0.1','phpunit');$db->exec("UPDATE apc_eventos SET data='2026-07-01' WHERE id=1");try{$service->update($id,$this->input(),$teacher,'127.0.0.1','phpunit');self::fail('Rascunho deveria ficar somente leitura após o prazo.');}catch(HttpException$exception){self::assertSame('APC_EVENT_CLOSED',$exception->errorCode);}self::assertSame('RASCUNHO',$authorization->plan($id,3,'PROFESSOR')['status']);
     }
 }
