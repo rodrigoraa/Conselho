@@ -15,7 +15,13 @@ final class SubmissionController
 
     public function index(Request$request):Response
     {
-        $user=$_SESSION['user'];$isTeacher=$user['perfil']==='PROFESSOR';$series=$isTeacher?$this->access->seriesFor((int)$user['id'],'PROFESSOR'):[];$events=$isTeacher?$this->service->availableEvents():[];$term=$this->service->currentTerm();$submissions=$this->submissions->list((int)$user['id'],(string)$user['perfil']);return new Response($this->view->render('submissions',compact('series','events','term','submissions','isTeacher')+['title'=>'Envio de APCs']));
+        $user=$_SESSION['user'];$isTeacher=$user['perfil']==='PROFESSOR';$submissions=$this->submissions->list((int)$user['id'],(string)$user['perfil']);$series=[];$events=[];$submittedSeries=[];$hadAvailableEvents=false;$teacherDashboard=['available'=>[],'future'=>[]];$tracking=['events'=>[],'without_series'=>[]];
+        if($isTeacher){
+            $series=$this->access->seriesFor((int)$user['id'],'PROFESSOR');
+            $teacherDashboard=$this->service->teacherDashboard($series,$submissions);$submittedSeries=$teacherDashboard['submitted_series'];$hadAvailableEvents=(bool)$teacherDashboard['available'];
+            $events=array_values(array_filter($teacherDashboard['available'],static fn(array$event):bool=>$event['status']!=='COMPLETO'));
+        }else{$tracking=$this->service->tracking();}
+        $term=$this->service->currentTerm();return new Response($this->view->render('submissions',compact('series','events','submittedSeries','hadAvailableEvents','teacherDashboard','tracking','term','submissions','isTeacher')+['title'=>'Envio de APCs']));
     }
 
     public function upload(Request$request):Response

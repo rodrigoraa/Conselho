@@ -11,19 +11,31 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&menuButton?
 
 const apcSubmission=document.querySelector('[data-apc-submission]');
 if(apcSubmission){
+  const eventField=apcSubmission.querySelector('[data-submission-event]');
   const stage=apcSubmission.querySelector('[data-submission-stage]');
   const year=apcSubmission.querySelector('[data-submission-year]');
   const classes=apcSubmission.querySelector('[data-submission-classes]');
+  const pendingForEvent=option=>{const eventId=eventField?.value||'';const submitted=(option.dataset.submittedEvents||'').split(',').filter(Boolean);return!!eventId&&!submitted.includes(eventId)};
   const refreshSeries=()=>{
+    const eventId=eventField?.value||'';
     const selectedStage=stage?.value||'';
     let available=0;
-    year?.querySelectorAll('option[data-stage]').forEach(option=>{const visible=option.dataset.stage===selectedStage;option.hidden=!visible;option.disabled=!visible;if(visible)available++});
-    if(year){if(year.selectedOptions[0]?.disabled)year.value='';year.disabled=!selectedStage||available===0;}
-    if(classes)classes.textContent=selectedStage?`${available} série(s) vinculada(s) disponível(is).`:'Escolha a etapa para visualizar suas séries vinculadas.';
+    year?.querySelectorAll('option[data-stage]').forEach(option=>{const visible=option.dataset.stage===selectedStage&&pendingForEvent(option);option.hidden=!visible;option.disabled=!visible;if(visible)available++});
+    if(year){if(year.selectedOptions[0]?.disabled)year.value='';year.disabled=!eventId||!selectedStage||available===0;}
+    if(classes)classes.textContent=!eventId?'Escolha primeiro o evento.':selectedStage?`${available} série(s) pendente(s) para este evento.`:'Escolha a etapa para visualizar somente os envios pendentes.';
   };
+  const refreshStages=()=>{
+    const eventId=eventField?.value||'';
+    let available=0;
+    stage?.querySelectorAll('[data-submission-stage-option]').forEach(option=>{const hasPending=[...(year?.querySelectorAll(`option[data-stage="${option.value}"]`)||[])].some(pendingForEvent);option.hidden=!hasPending;option.disabled=!hasPending;if(hasPending)available++});
+    if(stage){if(stage.selectedOptions[0]?.disabled)stage.value='';stage.disabled=!eventId||available===0;}
+    refreshSeries();
+  };
+  eventField?.addEventListener('change',()=>{if(stage)stage.value='';if(year)year.value='';refreshStages()});
   stage?.addEventListener('change',()=>{if(year)year.value='';refreshSeries()});
   year?.addEventListener('change',()=>{const selected=year.selectedOptions[0];if(classes)classes.textContent=selected?.value?`Turma(s) vinculada(s): ${selected.dataset.classes||'não identificadas'}`:'Selecione uma série.'});
-  refreshSeries();
+  document.querySelectorAll('[data-choose-apc-event]').forEach(button=>button.addEventListener('click',click=>{click.preventDefault();if(!eventField)return;eventField.value=button.dataset.chooseApcEvent||'';eventField.dispatchEvent(new Event('change'));apcSubmission.scrollIntoView({behavior:'smooth',block:'start'});eventField.focus()}));
+  refreshStages();
 }
 
 document.querySelectorAll('.student-list details').forEach(block=>{const box=block.querySelector('input[type="checkbox"]');const sync=()=>{block.classList.toggle('selected',box.checked);block.querySelectorAll('input:not([type="checkbox"]), textarea').forEach(field=>field.disabled=!box.checked)};box?.addEventListener('change',sync);sync()});

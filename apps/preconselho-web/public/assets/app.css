@@ -171,4 +171,54 @@ body.login-page{--login-navy:#12314a;--login-blue:#0f6cbd;--login-card:rgba(255,
 .apc-submission-card .submission-copy time,.apc-submission-card .submission-copy small,.apc-submission-card .submission-file small{display:block;color:var(--muted)}
 .apc-submission-card .submission-file{display:grid;gap:.45rem;justify-items:start;min-width:0}
 .apc-submission-card .submission-file strong{max-width:100%;overflow-wrap:anywhere}
-@media(max-width:850px){.apc-submission-fields{grid-template-columns:1fr}.apc-submission-fields .submission-file-field{grid-column:auto}.apc-submission-card{grid-template-columns:1fr}}
+.apc-teacher-dashboard{border-top:4px solid var(--blue)}
+.apc-teacher-success{display:flex;align-items:center;gap:.85rem;margin-bottom:1rem;padding:1rem 1.1rem;border:1px solid #a9d4bb;border-radius:.7rem;background:#edf8f2;color:var(--green-dark)}
+.apc-teacher-success>span{display:grid;place-items:center;flex:0 0 2.5rem;height:2.5rem;border-radius:50%;background:var(--green);color:#fff;font-size:1.35rem;font-weight:900}
+.apc-teacher-success strong,.apc-teacher-success p{display:block;margin:0}.apc-teacher-success p{margin-top:.2rem;color:#4b6a59;font-size:.82rem}
+.apc-teacher-progress{display:grid;grid-template-columns:minmax(0,1fr) minmax(12rem,.75fr);align-items:center;gap:1rem;margin-bottom:1rem;padding:.9rem 1rem;border:1px solid #ead3a9;border-radius:.65rem;background:#fffaf1}
+.apc-teacher-progress strong,.apc-teacher-progress span{display:block}.apc-teacher-progress strong{color:#76501a}.apc-teacher-progress span{margin-top:.2rem;color:var(--muted);font-size:.78rem}.apc-teacher-progress progress{width:100%;accent-color:var(--green)}
+.apc-teacher-event-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:.85rem}
+.apc-teacher-event{display:flex;flex-direction:column;min-width:0;padding:1rem;border:1px solid var(--border);border-left:5px solid #b45d55;border-radius:.7rem;background:#fff}
+.apc-teacher-event.is-parcial{border-left-color:#bd7a22}.apc-teacher-event.is-completo{border-left-color:var(--green);background:#fbfefc}
+.apc-teacher-event>header,.apc-future-event>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:.6rem}.apc-teacher-event time,.apc-future-event time{color:var(--green-dark);font-size:.8rem;font-weight:850}
+.apc-teacher-event h3,.apc-future-event h3{margin:.7rem 0 .3rem;color:var(--navy);font-size:1.08rem}.apc-event-deadline,.apc-future-event p{margin:.15rem 0;color:var(--muted);font-size:.8rem}
+.apc-event-completion{display:grid;grid-template-columns:auto minmax(6rem,1fr);align-items:center;gap:.65rem;margin:.85rem 0;padding:.55rem .65rem;border-radius:.45rem;background:#f4f7f8;color:var(--muted);font-size:.75rem}.apc-event-completion progress{width:100%;accent-color:var(--green)}
+.apc-event-done{display:flex;align-items:center;gap:.45rem;margin:auto 0 0;padding:.7rem;border-radius:.45rem;background:#e8f6ee;color:var(--green-dark);font-size:.82rem;font-weight:750}.apc-event-done>span{font-size:1rem}.apc-event-pending{display:grid;gap:.15rem;margin-bottom:.65rem;color:#6d4b1b;font-size:.8rem}.apc-event-pending span{color:var(--muted)}.apc-event-alert,.apc-late-warning{display:block;margin:.2rem 0 .65rem;color:#8a352f;font-size:.78rem}.apc-teacher-event>.button{align-self:flex-start;margin-top:auto}
+.apc-future-section{margin-top:1.25rem;padding-top:1.1rem;border-top:1px solid var(--border)}.apc-future-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.7rem}.apc-future-event{padding:.85rem;border:1px solid var(--border);border-left:4px solid #8ca8bb;border-radius:.6rem;background:#f8fafb}.apc-future-event small{display:block;margin-top:.45rem;color:var(--muted);font-size:.74rem}
+.apc-coordination-tracking{border-top:4px solid var(--green)}
+.apc-tracking-events{display:grid;gap:.85rem}
+.apc-tracking-event{overflow:hidden;border:1px solid var(--border);border-radius:.75rem;background:#fff}
+.apc-tracking-event>summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.1rem;list-style:none;cursor:pointer;background:#f6faf8}
+.apc-tracking-event>summary::-webkit-details-marker{display:none}
+.apc-tracking-event>summary:after{content:'+';display:grid;place-items:center;flex:0 0 2rem;height:2rem;border-radius:50%;background:#dfeee6;color:var(--green-dark);font-size:1.25rem;font-weight:850}
+.apc-tracking-event[open]>summary:after{content:'−'}
+.apc-tracking-event>summary>span:first-child{display:grid;gap:.15rem;min-width:0}
+.apc-tracking-event>summary time{color:var(--green-dark);font-size:.78rem;font-weight:850}
+.apc-tracking-event>summary strong{overflow-wrap:anywhere;color:var(--navy);font-size:1.08rem}
+.apc-tracking-totals{display:flex;align-items:center;justify-content:flex-end;gap:.4rem;flex-wrap:wrap;margin-left:auto}
+.apc-tracking-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding:1rem;border-top:1px solid var(--border);background:#fbfcfc}
+.apc-tracking-group{min-width:0}
+.tracking-group-heading{display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:.65rem}
+.tracking-group-heading h3{margin:0;color:var(--navy);font-size:1rem}
+.tracking-group-heading>span{color:var(--muted);font-size:.75rem;font-weight:750}
+.tracking-professor-list{display:grid;gap:.65rem}
+.tracking-professor-card{overflow:hidden;border:1px solid var(--border);border-left:4px solid #b45d55;border-radius:.6rem;background:#fff}
+.tracking-professor-card.is-parcial{border-left-color:#bd7a22}
+.tracking-professor-card.is-completo{border-left-color:var(--green)}
+.tracking-professor-card>header{display:flex;align-items:flex-start;justify-content:space-between;gap:.7rem;padding:.75rem .8rem;background:#fff}
+.tracking-professor-card>header strong,.tracking-professor-card>header small{display:block}
+.tracking-professor-card>header strong{color:var(--navy);overflow-wrap:anywhere}
+.tracking-professor-card>header small{margin-top:.15rem;color:var(--muted);font-size:.72rem}
+.tracking-requirements{padding:.7rem .8rem;border-top:1px solid #edf0f2;background:#fcf8f7;font-size:.78rem}
+.tracking-requirements ul,.tracking-sent-series{display:grid;gap:.4rem;margin:.45rem 0 0;padding:0;list-style:none}
+.tracking-requirements li,.tracking-sent-series li{display:flex;justify-content:space-between;gap:.7rem;padding:.45rem .55rem;border-radius:.35rem;background:#fff}
+.tracking-requirements li span{font-weight:750;color:#3d4e5b}
+.tracking-requirements li small,.tracking-sent-series small{color:var(--muted);text-align:right}
+.tracking-sent-series{margin:0;padding:0 .8rem .75rem}
+.tracking-sent-series li{background:#f3f9f5;color:var(--green-dark);font-size:.78rem;font-weight:750}
+.tracking-all-complete{display:grid;gap:.15rem;padding:1rem;border:1px solid #b9ddc8;border-radius:.6rem;background:#edf8f2;color:var(--green-dark)}
+.tracking-all-complete span,.tracking-group-empty{color:var(--muted);font-size:.8rem}
+.tracking-group-empty{margin:0;padding:1rem;border:1px dashed var(--border);border-radius:.6rem;text-align:center}
+.apc-binding-warning{margin:1rem 0 0}
+.apc-binding-warning p{margin:.25rem 0 0}
+@media(max-width:850px){.apc-submission-fields,.apc-teacher-progress{grid-template-columns:1fr}.apc-submission-fields .submission-file-field{grid-column:auto}.apc-submission-card,.apc-tracking-body{grid-template-columns:1fr}.apc-tracking-event>summary{align-items:flex-start;flex-wrap:wrap}.apc-tracking-totals{justify-content:flex-start;margin-left:0}.apc-tracking-event>summary:after{margin-left:auto}.tracking-professor-card>header{align-items:flex-start;flex-direction:column}.tracking-requirements li,.tracking-sent-series li{align-items:flex-start;flex-direction:column}.tracking-requirements li small,.tracking-sent-series small{text-align:left}.apc-teacher-event>.button{width:100%}}

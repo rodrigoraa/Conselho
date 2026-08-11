@@ -34,6 +34,30 @@ final class AccessRepository
         foreach($this->seriesFor($userId,$role)as$series)if($series['etapa']===$stage&&$series['ano_serie']===$year)return$series['turmas'];return[];
     }
 
+    /**
+     * @return array{requirements: array<int, array<string, mixed>>, without_series: array<int, array<string, mixed>>}
+     */
+    public function submissionRoster(int$schoolYear):array
+    {
+        $statement=$this->db->prepare("SELECT u.id professor_usuario_id,u.nome professor_nome,v.turma_externa_id id,v.turma_nome_snapshot nome,v.turma_ano_letivo_snapshot ano_letivo FROM usuarios u JOIN professores p ON p.usuario_id=u.id AND p.ativo=1 LEFT JOIN vinculos_professor_turma v ON v.professor_id=p.id AND v.ativo=1 AND v.turma_ano_letivo_snapshot=:ano WHERE u.perfil='PROFESSOR' AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE,v.turma_nome_snapshot COLLATE NOCASE");
+        $statement->execute([':ano'=>$schoolYear]);
+
+        $professors=[];$requirements=[];
+        foreach($statement->fetchAll()as$row){
+            $userId=(int)$row['professor_usuario_id'];if(!isset($professors[$userId]))$professors[$userId]=['professor_usuario_id'=>$userId,'professor_nome'=>(string)$row['professor_nome'],'recognized'=>false];
+            if($row['id']===null)continue;
+            $series=$this->seriesFromName((string)$row['nome']);if($series===null)continue;
+            $professors[$userId]['recognized']=true;$key=$userId.'|'.$series['etapa'].'|'.$series['ano_serie'];
+            if(!isset($requirements[$key]))$requirements[$key]=['professor_usuario_id'=>$userId,'professor_nome'=>(string)$row['professor_nome']]+$series+['turmas'=>[]];
+            $classId=(int)$row['id'];if(!isset($requirements[$key]['turmas'][$classId]))$requirements[$key]['turmas'][$classId]=['id'=>$classId,'nome'=>(string)$row['nome'],'ano_letivo'=>(int)$row['ano_letivo']];
+        }
+
+        foreach($requirements as&$requirement)$requirement['turmas']=array_values($requirement['turmas']);unset($requirement);
+        usort($requirements,static fn(array$a,array$b):int=>[$a['professor_nome'],$a['ordem_etapa'],$a['ordem_serie']]<=>[$b['professor_nome'],$b['ordem_etapa'],$b['ordem_serie']]);
+        $withoutSeries=[];foreach($professors as$professor)if(!$professor['recognized']){$withoutSeries[]=['professor_usuario_id'=>$professor['professor_usuario_id'],'professor_nome'=>$professor['professor_nome']];}
+        return['requirements'=>array_values($requirements),'without_series'=>$withoutSeries];
+    }
+
     private function seriesFromName(string$name):?array
     {
         $upper=mb_strtoupper(trim($name));if(!preg_match('/(?:^|\D)([1-9])\s*(?:º|°|ª)?/u',$upper,$matches))return null;$number=(int)$matches[1];$highSchool=$number<=3&&(preg_match('/\b(?:EM|ENSINO\s+M[EÉ]DIO|M[EÉ]DIO|S[EÉ]RIE)\b/u',$upper)===1||preg_match('/[1-3]\s*ª/u',$upper)===1);if($highSchool)return['etapa'=>'EM','ano_serie'=>'EM'.$number,'rotulo_etapa'=>'Ensino Médio','rotulo_serie'=>$number.'ª série','ordem_etapa'=>3,'ordem_serie'=>$number];if($number<=5)return['etapa'=>'EF_AI','ano_serie'=>'EF'.$number,'rotulo_etapa'=>'Ensino Fundamental — Anos Iniciais','rotulo_serie'=>$number.'º ano','ordem_etapa'=>1,'ordem_serie'=>$number];return['etapa'=>'EF_AF','ano_serie'=>'EF'.$number,'rotulo_etapa'=>'Ensino Fundamental — Anos Finais','rotulo_serie'=>$number.'º ano','ordem_etapa'=>2,'ordem_serie'=>$number];

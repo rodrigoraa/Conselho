@@ -33,13 +33,69 @@ final class SubmissionService
 
     public function currentTerm():?array{return$this->terms->containing($this->today());}
 
+    /**
+     * @param array<int, array<string, mixed>> $series
+     * @param array<int, array<string, mixed>> $submissions
+     * @return array{available: array<int, array<string, mixed>>, future: array<int, array<string, mixed>>, submitted_series: array<string, array<int, int>>}
+     */
+    public function teacherDashboard(array$series,array$submissions):array
+    {
+        $submitted=[];foreach($submissions as$submission)$submitted[$submission['etapa'].'|'.$submission['ano_serie']][]=(int)$submission['evento_id'];
+        $available=[];$future=[];
+        foreach($this->events->active()as$event){
+            $window=$this->window->describe($event);if(in_array($window['state'],['ENCERRADO','SEM_BIMESTRE'],true))continue;
+            $requirements=[];$sentCount=0;
+            foreach($series as$item){$key=$item['etapa'].'|'.$item['ano_serie'];$sent=in_array((int)$event['id'],$submitted[$key]??[],true);if($sent)$sentCount++;$requirements[]=$item+['sent'=>$sent];}
+            $total=count($requirements);$status=$total===0?'SEM_VINCULO':($sentCount===$total?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'));
+            $scheduled=array_merge($event,['submission_window'=>$window,'requirements'=>$requirements,'pending_series'=>array_values(array_filter($requirements,static fn(array$requirement):bool=>!$requirement['sent'])),'sent_count'=>$sentCount,'total_count'=>$total,'status'=>$status]);
+            if($window['is_open'])$available[]=$scheduled;else$future[]=$scheduled;
+        }
+        return['available'=>$available,'future'=>$future,'submitted_series'=>$submitted];
+    }
+
+    /**
+     * @return array{events: array<int, array<string, mixed>>, without_series: array<int, array<string, mixed>>}
+     */
+    public function tracking():array
+    {
+        $events=$this->availableEvents();$indexed=[];
+        foreach($this->submissions->list(0,'COORDENADOR')as$submission)$indexed[(int)$submission['evento_id'].'|'.(int)$submission['professor_usuario_id'].'|'.$submission['etapa'].'|'.$submission['ano_serie']]=$submission;
+
+        $rosters=[];$withoutSeries=[];$trackedEvents=[];
+        foreach($events as$event){
+            $schoolYear=(int)$event['ano_letivo'];
+            if(!isset($rosters[$schoolYear]))$rosters[$schoolYear]=$this->access->submissionRoster($schoolYear);
+            $roster=$rosters[$schoolYear];
+            foreach($roster['without_series']as$professor)$withoutSeries[(int)$professor['professor_usuario_id']]=$professor;
+
+            $professors=[];
+            foreach($roster['requirements']as$requirement){
+                $userId=(int)$requirement['professor_usuario_id'];
+                if(!isset($professors[$userId]))$professors[$userId]=['professor_usuario_id'=>$userId,'professor_nome'=>$requirement['professor_nome'],'requirements'=>[]];
+                $key=(int)$event['id'].'|'.$userId.'|'.$requirement['etapa'].'|'.$requirement['ano_serie'];$submission=$indexed[$key]??null;
+                $professors[$userId]['requirements'][]=$requirement+['sent'=>$submission!==null,'submission'=>$submission];
+            }
+
+            $counts=['complete_count'=>0,'partial_count'=>0,'pending_count'=>0];
+            foreach($professors as&$professor){
+                $total=count($professor['requirements']);$sent=count(array_filter($professor['requirements'],static fn(array$requirement):bool=>$requirement['sent']));
+                $professor['sent_count']=$sent;$professor['total_count']=$total;$professor['missing']=array_values(array_filter($professor['requirements'],static fn(array$requirement):bool=>!$requirement['sent']));
+                if($sent===$total){$professor['status']='COMPLETO';$counts['complete_count']++;}elseif($sent>0){$professor['status']='PARCIAL';$counts['partial_count']++;}else{$professor['status']='PENDENTE';$counts['pending_count']++;}
+            }unset($professor);
+            $professors=array_values($professors);$order=['PENDENTE'=>0,'PARCIAL'=>1,'COMPLETO'=>2];
+            usort($professors,static fn(array$a,array$b):int=>[$order[$a['status']],mb_strtoupper((string)$a['professor_nome'])]<=>[$order[$b['status']],mb_strtoupper((string)$b['professor_nome'])]);
+            $trackedEvents[]=$event+['professors'=>$professors,'professor_count'=>count($professors),'incomplete_count'=>$counts['partial_count']+$counts['pending_count']]+$counts;
+        }
+        return['events'=>$trackedEvents,'without_series'=>array_values($withoutSeries)];
+    }
+
     public function submit(array$input,array$file,array$user,string$ip,string$userAgent):int
     {
-        if(($user['perfil']??'')!=='PROFESSOR')throw new HttpException(403,'APC_FORBIDDEN','Somente professores podem enviar arquivos de APC.');$eventId=filter_var($input['evento_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$event=$eventId?$this->events->find((int)$eventId):null;if(!$event||$event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_NOT_FOUND','Selecione um evento APC válido.');$window=$this->window->assertOpen($event);$stage=trim((string)($input['etapa']??''));$year=trim((string)($input['ano_serie']??''));if(!in_array($stage,self::STAGES,true)||!in_array($year,self::YEARS,true)||$this->stageForYear($year)!==$stage)throw new HttpException(422,'APC_INVALID_SERIES','Selecione uma etapa e uma série válidas.');$classes=$this->access->classesForSeries((int)$user['id'],'PROFESSOR',$stage,$year);if(!$classes)throw new HttpException(403,'APC_SERIES_FORBIDDEN','A série selecionada não pertence às turmas vinculadas a este professor no Conselho.');$prepared=$this->prepare($file);$existing=$this->submissions->existing((int)$eventId,(int)$user['id'],$stage,$year);$today=$this->today();$eventDate=new \DateTimeImmutable((string)$event['data']);$sentDate=new \DateTimeImmutable($today);$late=$sentDate>$eventDate;$days=$late?(int)$eventDate->diff($sentDate)->format('%a'):0;$data=['evento_id'=>(int)$eventId,'bimestre_id'=>(int)$window['term']['id'],'professor_usuario_id'=>(int)$user['id'],'professor_nome_snapshot'=>(string)$user['nome'],'etapa'=>$stage,'ano_serie'=>$year,'nome_original'=>$prepared['nome_original'],'nome_armazenado'=>$prepared['nome_armazenado'],'mime_type'=>$prepared['mime_type'],'tamanho_bytes'=>$prepared['tamanho_bytes'],'sha256'=>$prepared['sha256'],'caminho_relativo'=>$prepared['caminho_relativo'],'atrasado'=>$late?1:0,'dias_atraso'=>$days,'enviado_em'=>$today.' '.date('H:i:s')];$oldPath=$existing?$this->absolute((string)$existing['caminho_relativo'],false):null;$quarantine=$oldPath&&is_file($oldPath)?$oldPath.'.replaced-'.bin2hex(random_bytes(8)):null;$final=$prepared['final'];
+        if(($user['perfil']??'')!=='PROFESSOR')throw new HttpException(403,'APC_FORBIDDEN','Somente professores podem enviar arquivos de APC.');$eventId=filter_var($input['evento_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$event=$eventId?$this->events->find((int)$eventId):null;if(!$event||$event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_NOT_FOUND','Selecione um evento APC válido.');$window=$this->window->assertOpen($event);$stage=trim((string)($input['etapa']??''));$year=trim((string)($input['ano_serie']??''));if(!in_array($stage,self::STAGES,true)||!in_array($year,self::YEARS,true)||$this->stageForYear($year)!==$stage)throw new HttpException(422,'APC_INVALID_SERIES','Selecione uma etapa e uma série válidas.');$classes=$this->access->classesForSeries((int)$user['id'],'PROFESSOR',$stage,$year);if(!$classes)throw new HttpException(403,'APC_SERIES_FORBIDDEN','A série selecionada não pertence às turmas vinculadas a este professor no Conselho.');if($this->submissions->existing((int)$eventId,(int)$user['id'],$stage,$year))throw$this->alreadySubmitted();$prepared=$this->prepare($file);$today=$this->today();$eventDate=new \DateTimeImmutable((string)$event['data']);$sentDate=new \DateTimeImmutable($today);$late=$sentDate>$eventDate;$days=$late?(int)$eventDate->diff($sentDate)->format('%a'):0;$data=['evento_id'=>(int)$eventId,'bimestre_id'=>(int)$window['term']['id'],'professor_usuario_id'=>(int)$user['id'],'professor_nome_snapshot'=>(string)$user['nome'],'etapa'=>$stage,'ano_serie'=>$year,'nome_original'=>$prepared['nome_original'],'nome_armazenado'=>$prepared['nome_armazenado'],'mime_type'=>$prepared['mime_type'],'tamanho_bytes'=>$prepared['tamanho_bytes'],'sha256'=>$prepared['sha256'],'caminho_relativo'=>$prepared['caminho_relativo'],'atrasado'=>$late?1:0,'dias_atraso'=>$days,'enviado_em'=>$today.' '.date('H:i:s')];$final=$prepared['final'];
         $this->submissions->db->beginTransaction();
         try{
-            if($quarantine&&!rename($oldPath,$quarantine))throw new \RuntimeException('Não foi possível preparar a substituição do arquivo anterior.');$id=$this->submissions->save($existing?(int)$existing['id']:null,$data);$this->submissions->syncClasses($id,$classes);$this->ensureDirectory(dirname($final));if(!rename($prepared['staging'],$final))throw new \RuntimeException('Não foi possível concluir o armazenamento do arquivo.');$this->audit->record((int)$user['id'],$existing?'SUBSTITUIR_ARQUIVO_APC':'ANEXAR_ARQUIVO_APC','apc_envios',$id,$existing?array_intersect_key($existing,array_flip(['nome_original','sha256','atrasado','dias_atraso'])):null,array_intersect_key($data,array_flip(['evento_id','etapa','ano_serie','nome_original','sha256','atrasado','dias_atraso']))+['turmas'=>array_column($classes,'nome')],$ip,$userAgent);$this->submissions->db->commit();if($quarantine&&is_file($quarantine)&&!unlink($quarantine))error_log('Falha ao limpar arquivo APC substituído: '.$id);return$id;
-        }catch(\Throwable$exception){if($this->submissions->db->inTransaction())$this->submissions->db->rollBack();if(is_file($final))@unlink($final);if($quarantine&&is_file($quarantine))@rename($quarantine,$oldPath);if(is_file($prepared['staging']))@unlink($prepared['staging']);if($exception instanceof HttpException)throw$exception;throw new HttpException(500,'APC_SUBMISSION_FAILED','Não foi possível armazenar o arquivo da APC com segurança.');}
+            $id=$this->submissions->save(null,$data);$this->submissions->syncClasses($id,$classes);$this->ensureDirectory(dirname($final));if(!rename($prepared['staging'],$final))throw new \RuntimeException('Não foi possível concluir o armazenamento do arquivo.');$this->audit->record((int)$user['id'],'ANEXAR_ARQUIVO_APC','apc_envios',$id,null,array_intersect_key($data,array_flip(['evento_id','etapa','ano_serie','nome_original','sha256','atrasado','dias_atraso']))+['turmas'=>array_column($classes,'nome')],$ip,$userAgent);$this->submissions->db->commit();return$id;
+        }catch(\Throwable$exception){if($this->submissions->db->inTransaction())$this->submissions->db->rollBack();if(is_file($final))@unlink($final);if(is_file($prepared['staging']))@unlink($prepared['staging']);if($exception instanceof HttpException)throw$exception;if($this->submissions->existing((int)$eventId,(int)$user['id'],$stage,$year))throw$this->alreadySubmitted();throw new HttpException(500,'APC_SUBMISSION_FAILED','Não foi possível armazenar o arquivo da APC com segurança.');}
     }
 
     public function file(int$id,array$user):array
@@ -57,6 +113,7 @@ final class SubmissionService
         if(!preg_match('#^envios/[0-9]{4}/[0-9]{2}/[a-f0-9]{32}\.(pdf|doc|docx|odt|jpg|png|webp)$#D',$relative))throw new HttpException(404,'APC_SUBMISSION_NOT_FOUND','Arquivo APC não encontrado.');$path=$this->ensureRoot().DIRECTORY_SEPARATOR.str_replace('/',DIRECTORY_SEPARATOR,$relative);if($mustExist&&!is_file($path))throw new HttpException(404,'APC_SUBMISSION_FILE_MISSING','O arquivo da APC não está disponível.');return$path;
     }
     private function originalName(string$name):string{$name=basename(str_replace('\\','/',$name));$name=preg_replace('/[\x00-\x1F\x7F]+/u','',$name)??'';$name=trim($name);return mb_substr($name===''?'arquivo':$name,0,180);}
+    private function alreadySubmitted():HttpException{return new HttpException(409,'APC_SUBMISSION_ALREADY_EXISTS','A APC deste evento, etapa e série já foi anexada. O reenvio não é permitido.');}
     private function ensureRoot():string{if(trim($this->uploadsPath)==='')throw new \RuntimeException('Diretório de uploads APC não configurado.');$this->ensureDirectory($this->uploadsPath);$root=realpath($this->uploadsPath);if($root===false)throw new \RuntimeException('Diretório de uploads APC indisponível.');return rtrim($root,'/\\');}
     private function ensureDirectory(string$directory):void{if(!is_dir($directory)&&!mkdir($directory,0770,true)&&!is_dir($directory))throw new \RuntimeException('Diretório privado do APC indisponível.');}
     private function stageForYear(string$year):string{return str_starts_with($year,'EM')?'EM':((int)substr($year,2)<=5?'EF_AI':'EF_AF');}
