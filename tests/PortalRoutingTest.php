@@ -20,8 +20,8 @@ final class PortalRoutingTest extends ApcTestCase
     public function testPortalAndApcRoutesRemainProtectedWithoutAuthentication(): void
     {
         unset($_SESSION['user']);
-        $router=new Router();$auth=[new AuthMiddleware()];$router->add('GET','/',fn()=>new Response('portal'),$auth);$router->add('GET','/apc',fn()=>new Response('apc'),$auth);$router->add('GET','/apc/anexos/{id}',fn()=>new Response('arquivo'),$auth);
-        foreach(['/','/apc','/apc/anexos/1']as$path){$response=$router->dispatch(new Request('GET',$path,[],[],[]));self::assertSame(302,$response->status);self::assertSame('/login',$response->headers['Location']);}
+        $router=new Router();$auth=[new AuthMiddleware()];$router->add('GET','/',fn()=>new Response('portal'),$auth);$router->add('GET','/apc',fn()=>new Response('apc'),$auth);$router->add('GET','/apc/calendario',fn()=>new Response('calendario'),$auth);$router->add('GET','/apc/habilidades',fn()=>new Response('habilidades'),$auth);$router->add('GET','/apc/admin/curriculo',fn()=>new Response('curriculo'),$auth);$router->add('GET','/apc/anexos/{id}',fn()=>new Response('arquivo'),$auth);
+        foreach(['/','/apc','/apc/calendario','/apc/habilidades','/apc/admin/curriculo','/apc/anexos/1']as$path){$response=$router->dispatch(new Request('GET',$path,[],[],[]));self::assertSame(302,$response->status);self::assertSame('/login',$response->headers['Location']);}
     }
 
     public function testPortalContainsBothSystemCardsAndCouncilAliasOpensOldHandler(): void

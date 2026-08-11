@@ -29,14 +29,14 @@ final class PlanRepository
 
     public function insert(array $data): int
     {
-        $statement=$this->db->prepare('INSERT INTO apc_planos(evento_id,professor_usuario_id,professor_nome_snapshot,turma_id_externo,turma_nome_snapshot,componente_curricular,competencias_habilidades,conteudos,descricao_atividade,estrategia_devolucao,total_alunos_snapshot)VALUES(:evento,:professor,:professor_nome,:turma,:turma_nome,:componente,:competencias,:conteudos,:descricao,:estrategia,:total_alunos)');
+        $statement=$this->db->prepare('INSERT INTO apc_planos(evento_id,professor_usuario_id,professor_nome_snapshot,turma_id_externo,turma_nome_snapshot,componente_curricular,competencias_habilidades,conteudos,descricao_atividade,estrategia_devolucao,total_alunos_snapshot,etapa,ano_serie)VALUES(:evento,:professor,:professor_nome,:turma,:turma_nome,:componente,:competencias,:conteudos,:descricao,:estrategia,:total_alunos,:etapa,:ano_serie)');
         $statement->execute($this->parameters($data));return(int)$this->db->lastInsertId();
     }
 
     public function update(int $id,array $data): void
     {
-        $statement=$this->db->prepare('UPDATE apc_planos SET componente_curricular=:componente,competencias_habilidades=:competencias,conteudos=:conteudos,descricao_atividade=:descricao,estrategia_devolucao=:estrategia,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
-        $statement->execute([':componente'=>$data['componente_curricular'],':competencias'=>$data['competencias_habilidades'],':conteudos'=>$data['conteudos'],':descricao'=>$data['descricao_atividade'],':estrategia'=>$data['estrategia_devolucao'],':id'=>$id]);
+        $statement=$this->db->prepare('UPDATE apc_planos SET componente_curricular=:componente,competencias_habilidades=:competencias,conteudos=:conteudos,descricao_atividade=:descricao,estrategia_devolucao=:estrategia,etapa=:etapa,ano_serie=:ano_serie,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
+        $statement->execute([':componente'=>$data['componente_curricular'],':competencias'=>$data['competencias_habilidades'],':conteudos'=>$data['conteudos'],':descricao'=>$data['descricao_atividade'],':estrategia'=>$data['estrategia_devolucao'],':etapa'=>$data['etapa']??null,':ano_serie'=>$data['ano_serie']??null,':id'=>$id]);
     }
 
     public function finalize(int $id): void
@@ -62,9 +62,19 @@ final class PlanRepository
         $statement->execute($params);return$statement->fetch()?:['total'=>0,'pendentes'=>0,'finalizados'=>0];
     }
 
+    public function eventSummary(int $eventId,int $userId,string $role): array
+    {
+        $where='evento_id=:evento AND arquivado_em IS NULL';$params=[':evento'=>$eventId];if($role==='PROFESSOR'){$where.=' AND professor_usuario_id=:usuario';$params[':usuario']=$userId;}$statement=$this->db->prepare("SELECT COUNT(*) total,SUM(CASE WHEN status='RASCUNHO' THEN 1 ELSE 0 END) pendentes,SUM(CASE WHEN status='FINALIZADO' THEN 1 ELSE 0 END) finalizados FROM apc_planos WHERE $where");$statement->execute($params);return$statement->fetch()?:['total'=>0,'pendentes'=>0,'finalizados'=>0];
+    }
+
+    public function eventPlansForTeacher(int $eventId,int $userId): array
+    {
+        $statement=$this->db->prepare('SELECT id,turma_nome_snapshot,componente_curricular,status FROM apc_planos WHERE evento_id=:evento AND professor_usuario_id=:usuario AND arquivado_em IS NULL ORDER BY turma_nome_snapshot,componente_curricular');$statement->execute([':evento'=>$eventId,':usuario'=>$userId]);return$statement->fetchAll();
+    }
+
     private function parameters(array $data): array
     {
-        return[':evento'=>$data['evento_id'],':professor'=>$data['professor_usuario_id'],':professor_nome'=>$data['professor_nome_snapshot'],':turma'=>$data['turma_id_externo'],':turma_nome'=>$data['turma_nome_snapshot'],':componente'=>$data['componente_curricular'],':competencias'=>$data['competencias_habilidades'],':conteudos'=>$data['conteudos'],':descricao'=>$data['descricao_atividade'],':estrategia'=>$data['estrategia_devolucao'],':total_alunos'=>$data['total_alunos_snapshot']??null];
+        return[':evento'=>$data['evento_id'],':professor'=>$data['professor_usuario_id'],':professor_nome'=>$data['professor_nome_snapshot'],':turma'=>$data['turma_id_externo'],':turma_nome'=>$data['turma_nome_snapshot'],':componente'=>$data['componente_curricular'],':competencias'=>$data['competencias_habilidades'],':conteudos'=>$data['conteudos'],':descricao'=>$data['descricao_atividade'],':estrategia'=>$data['estrategia_devolucao'],':total_alunos'=>$data['total_alunos_snapshot']??null,':etapa'=>$data['etapa']??null,':ano_serie'=>$data['ano_serie']??null];
     }
 
     private function escapeLike(string $value): string

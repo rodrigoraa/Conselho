@@ -2,7 +2,7 @@
 
 namespace Apc\Controllers;
 
-use Apc\Repositories\{AccessRepository,EventRepository};
+use Apc\Repositories\{AccessRepository,CurriculumRepository,EventRepository};
 use Apc\Services\{AuthorizationService,PlanService};
 use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
@@ -11,14 +11,14 @@ use Shared\Support\View;
 
 final class PlanController
 {
-    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view) {}
+    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view,private readonly ?CurriculumRepository $curriculum=null) {}
 
     public function createForm(Request $request): Response
     {
         $user=$_SESSION['user'];$eventId=(int)($request->query['evento']??0);$selectedEvent=$eventId?$this->events->find($eventId):null;
         if($eventId&&!$selectedEvent)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
-        $events=$this->events->active();$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;
-        return new Response($this->view->render('plan_form',compact('events','classes','selectedEvent','plan')+['title'=>'Novo Plano de Ação']));
+        $events=$this->events->active();$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;$components=$this->curriculum?->components()??[];$planCurriculum=['componentes'=>[],'habilidades'=>[]];
+        return new Response($this->view->render('plan_form',compact('events','classes','selectedEvent','plan','components','planCurriculum')+['title'=>'Novo Plano de Ação']));
     }
 
     public function create(Request $request): Response
@@ -28,7 +28,7 @@ final class PlanController
 
     public function show(Request $request,array $params): Response
     {
-        $user=$_SESSION['user'];$plan=$this->authorization->plan((int)$params['id'],(int)$user['id'],(string)$user['perfil']);return new Response($this->view->render('plan_form',compact('plan')+['events'=>[],'classes'=>[],'selectedEvent'=>null,'title'=>'Plano de Ação APC']));
+        $user=$_SESSION['user'];$plan=$this->authorization->plan((int)$params['id'],(int)$user['id'],(string)$user['perfil']);$components=$this->curriculum?->components(null,true)??[];$planCurriculum=$this->curriculum?->planCurriculum((int)$plan['id'])??['componentes'=>[],'habilidades'=>[]];return new Response($this->view->render('plan_form',compact('plan','components','planCurriculum')+['events'=>[],'classes'=>[],'selectedEvent'=>null,'title'=>'Plano de Ação APC']));
     }
 
     public function update(Request $request,array $params): Response

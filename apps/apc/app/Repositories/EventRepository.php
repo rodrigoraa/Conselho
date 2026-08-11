@@ -22,6 +22,21 @@ final class EventRepository
         return$this->db->query("SELECT * FROM apc_eventos WHERE status='ATIVO' ORDER BY data,id")->fetchAll();
     }
 
+    public function upcoming(int $limit=5,?string $today=null): array
+    {
+        $statement=$this->db->prepare("SELECT * FROM apc_eventos WHERE status='ATIVO' AND data>=:hoje ORDER BY data,id LIMIT :limite");$statement->bindValue(':hoje',$today??date('Y-m-d'));$statement->bindValue(':limite',$limit,PDO::PARAM_INT);$statement->execute();return$statement->fetchAll();
+    }
+
+    public function years(): array
+    {
+        return array_map('intval',$this->db->query('SELECT DISTINCT ano_letivo FROM apc_eventos ORDER BY ano_letivo DESC')->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    public function month(int $year,int $month): array
+    {
+        $start=sprintf('%04d-%02d-01',$year,$month);$end=(new \DateTimeImmutable($start))->modify('first day of next month')->format('Y-m-d');$statement=$this->db->prepare("SELECT * FROM apc_eventos WHERE status='ATIVO' AND data>=:inicio AND data<:fim ORDER BY data,id");$statement->execute([':inicio'=>$start,':fim'=>$end]);return$statement->fetchAll();
+    }
+
     public function find(int $id): ?array
     {
         $statement=$this->db->prepare('SELECT * FROM apc_eventos WHERE id=:id');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;

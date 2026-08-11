@@ -1,6 +1,8 @@
 <?php declare(strict_types=1);
 
 use PreConselho\Support\Cpf;
+use Apc\Repositories\{AuditRepository,CurriculumRepository};
+use Apc\Services\CurriculumImporter;
 use Shared\Database\ConnectionFactory;
 use Shared\Env;
 
@@ -27,6 +29,11 @@ try{
     if($command==='migrate-apc'){
         $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';
         $migrate(ConnectionFactory::apc($path),$root.'/apps/apc/database/migrations','do APC');
+    }elseif($command==='apc-importar-curriculo'){
+        $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';$db=ConnectionFactory::apc($path);$importer=new CurriculumImporter(new CurriculumRepository($db),new AuditRepository($db),$root.'/apps/apc/resources/curriculo');$summary=$importer->import();
+        echo "Componentes processados: {$summary['componentes']}\nHabilidades únicas processadas: {$summary['habilidades']}\nAssociações ano/série processadas: {$summary['associacoes']}\nLinhas curriculares lidas: {$summary['linhas']}\n";
+        foreach($summary['advertencias']as$warning)echo "Advertência: $warning\n";
+        echo "Importação curricular do APC concluída.\n";
     }else{
         $path=Env::get('PRECONSELHO_DB_PATH',$root.'/storage/preconselho.db')??'';
         $db=ConnectionFactory::preconselho($path);
@@ -64,7 +71,7 @@ try{
         if($statement->rowCount()!==1)throw new RuntimeException('Usuário não encontrado pelo e-mail informado.');
         echo 'CPF vinculado. O usuário já pode entrar com '.Cpf::format($cpf).".\n";
         }else{
-            echo "Comandos: migrate | migrate-apc | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+            echo "Comandos: migrate | migrate-apc | apc-importar-curriculo | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
         }
     }
 }catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

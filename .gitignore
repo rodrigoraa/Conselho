@@ -32,6 +32,8 @@
 /coverage/
 /.php-cs-fixer.cache
 /.phpstan.cache/
+__pycache__/
+*.py[cod]
 
 # IDEs e editores
 /.vscode/

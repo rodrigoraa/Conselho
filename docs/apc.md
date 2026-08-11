@@ -44,6 +44,8 @@ A migration `apps/apc/database/migrations/001_initial.sql` cria:
 - `apc_parametros`: escala mínima/máxima e casas decimais da nota;
 - `migrations`: controle independente das migrations APC.
 
+A migration incremental `002_curriculo_estruturado.sql` acrescenta `etapa` e `ano_serie` ao plano sem remover os campos legados e cria o catálogo local (`apc_componentes_curriculares`, `apc_habilidades_curriculares`, `apc_habilidade_anos_series`) e as relações interdisciplinares (`apc_plano_componentes`, `apc_plano_habilidades`). Os textos oficiais e os nomes/códigos selecionados são preservados também como snapshots no plano.
+
 Para criar ou atualizar somente `apc.db`:
 
 ```bash
@@ -54,6 +56,30 @@ composer migrate:apc
 ```
 
 `composer migrate` continua atuando somente em `PRECONSELHO_DB_PATH` e não executa migrations APC implicitamente.
+
+## Catálogo Curricular
+
+O catálogo é versionado em `apps/apc/resources/curriculo/` e consultado localmente no `apc.db`; a aplicação não acessa a internet quando o professor abre um plano. As fontes primárias são o **Currículo de Referência de Mato Grosso do Sul — Educação Infantil e Ensino Fundamental, versão 1.10** (`https://www.sed.ms.gov.br/wp-content/uploads/2020/02/curriculo_v110.pdf`) e o **Currículo de Referência de Mato Grosso do Sul — Ensino Médio, versão 1.1** (`https://www.sed.ms.gov.br/wp-content/uploads/2022/01/Curriculo-Novo-Ensino-Medio-v1.1.pdf`). O portal institucional de atualização é `https://www.sed.ms.gov.br/informativos/guias-e-manuais/`.
+
+TVT é um componente real, denominado **Terra – Vida – Trabalho**, modalidade `EDUCACAO_DO_CAMPO`. Os dados TVT disponíveis nesta versão vieram da Matriz de Habilidades Essenciais produzida pela SED/MS e estão marcados como `SED_MS_MATRIZ_HABILIDADES_ESSENCIAIS` / `ESSENCIAL_RECOMPOSICAO`. Trata-se de catálogo **parcial**, voltado também à recomposição, e não do referencial curricular TVT completo. Não há conteúdo criado por IA para preencher lacunas.
+
+Depois da migration, faça a importação idempotente:
+
+```bash
+sudo -u www-data php scripts/console.php apc-importar-curriculo
+# equivalente:
+sudo -u www-data composer apc:import-curriculo
+```
+
+O importador valida todos os CSVs antes da transação, atualiza registros por chave estável, não apaga ausentes, preserva ativações/desativações administrativas e registra `CURRICULO_IMPORTADO`. Executá-lo novamente não duplica componentes, habilidades nem associações.
+
+O professor seleciona etapa, ano/série, múltiplos componentes e múltiplas habilidades. A busca exige etapa, ano e componente, pesquisa código, descrição, unidade temática e objeto de conhecimento e retorna no máximo 30 itens. A validação server-side rejeita habilidade de componente não selecionado ou não associada ao ano. `competencias_habilidades` foi mantido como complemento/observação manual; planos antigos sem relações estruturadas continuam exibindo e editando os textos legados.
+
+Somente ADMIN acessa `/apc/admin/curriculo` para importar os CSVs versionados, cadastrar, editar, ativar e desativar. Código de habilidade pode ficar vazio. Desativação é lógica (`ativo = 0`): o item deixa de aparecer para novas associações, mas seus snapshots e vínculos históricos continuam visíveis. Para atualizar o catálogo futuramente, substitua os CSVs somente após extração e conferência contra nova publicação oficial, execute os testes e rode novamente o importador.
+
+## Calendário
+
+`/apc/calendario` reutiliza `apc_eventos` como fonte única. A visualização mensal é gerada em PHP, permite mês anterior, hoje, mês seguinte e seleção dos anos realmente existentes. Em telas pequenas vira uma lista cronológica. `/apc/eventos/{id}` mostra os detalhes; professor vê apenas seus planos, enquanto coordenação/admin recebe contagem agregada. O dashboard mostra os cinco próximos eventos ativos a partir da data atual, em ordem, com acesso ao calendário completo.
 
 ## Perfis e fluxos
 
@@ -77,12 +103,16 @@ O administrador possui a visão global, gerencia eventos, origem SED/escola, dad
 /                              portal autenticado
 /conselho                      dashboard original do Conselho
 /apc                           dashboard APC
+/apc/calendario                calendário mensal autenticado
+/apc/eventos/{id}              detalhe do evento e planos permitidos
+/apc/habilidades               busca autenticada do catálogo (JSON, limite 30)
 /apc/planos/novo               formulário do professor
 /apc/planos/{id}               Plano de Ação
 /apc/planos/{id}/entregas      alunos e entregas
 /apc/anexos/{id}               download privado e autorizado
 /apc/relatorios                consolidado da coordenação/admin
 /apc/admin                     calendário, parâmetros e auditoria
+/apc/admin/curriculo           administração do catálogo (ADMIN)
 ```
 
 ### POST
@@ -99,6 +129,13 @@ O administrador possui a visão global, gerencia eventos, origem SED/escola, dad
 /apc/admin/eventos/{id}
 /apc/admin/eventos/{id}/cancelar
 /apc/admin/parametros
+/apc/admin/curriculo/componentes
+/apc/admin/curriculo/importar
+/apc/admin/curriculo/componentes/{id}
+/apc/admin/curriculo/componentes/{id}/alternar
+/apc/admin/curriculo/habilidades
+/apc/admin/curriculo/habilidades/{id}
+/apc/admin/curriculo/habilidades/{id}/alternar
 ```
 
 Todos os POSTs usam o token CSRF existente. Middleware de perfil e autorização de recurso são aplicados separadamente; conhecer um ID não concede acesso.
@@ -133,9 +170,11 @@ Os comandos abaixo são um roteiro; não são executados automaticamente:
 cd /var/www/Conselho
 
 # 1. Coloque a aplicação em manutenção e faça os backups do Conselho e do APC.
-php scripts/backup.php /backup/preconselho-$(date +%F-%H%M).db
-sqlite3 /var/www/data/apc.db ".backup '/backup/apc-$(date +%F-%H%M).db'"
-rsync -a /var/www/data/apc-uploads/ /backup/apc-uploads-$(date +%F-%H%M)/
+sudo install -d -o root -g root -m 0700 /var/backups/conselho
+stamp=$(date +%F-%H%M%S)
+sudo php scripts/backup.php "/var/backups/conselho/preconselho-$stamp.db"
+sudo sqlite3 /var/www/data/apc.db ".backup '/var/backups/conselho/apc-$stamp.db'"
+sudo rsync -a /var/www/data/apc-uploads/ "/var/backups/conselho/apc-uploads-$stamp/"
 
 # 2. Atualize o código conforme o processo já adotado pela escola.
 composer install --no-dev --optimize-autoloader
@@ -148,10 +187,13 @@ php scripts/check-requirements.php
 # 5. Execute somente a migration APC explicitamente.
 sudo -u www-data php scripts/console.php migrate-apc
 
-# 6. Verifique os bancos sem modificar dados do Conselho.
+# 6. Importe o catálogo curricular versionado.
+sudo -u www-data php scripts/console.php apc-importar-curriculo
+
+# 7. Verifique os bancos sem modificar dados do Conselho.
 sqlite3 /var/www/data/apc.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
 
-# 7. Faça smoke test autenticado em /, /conselho, /apc e em um download autorizado.
+# 8. Faça smoke test autenticado em /, /conselho, /apc, /apc/calendario e em um download autorizado.
 ```
 
 Nenhum novo virtual host, processo PHP ou serviço colaborativo é necessário. Não reinicie o Hocuspocus por causa do APC. Recarregue o PHP-FPM apenas se o procedimento operacional do servidor exigir a leitura de novo `.env` ou `php.ini`.
@@ -161,14 +203,15 @@ Nenhum novo virtual host, processo PHP ou serviço colaborativo é necessário. 
 Banco e uploads formam um único conjunto lógico. Para uma cópia coerente, suspenda gravações APC durante o backup:
 
 ```bash
-sqlite3 /var/www/data/apc.db ".backup '/backup/apc-AAAA-MM-DD.db'"
-rsync -a --delete /var/www/data/apc-uploads/ /backup/apc-uploads-AAAA-MM-DD/
+sudo install -d -o root -g root -m 0700 /var/backups/conselho
+sudo sqlite3 /var/www/data/apc.db ".backup '/var/backups/conselho/apc-AAAA-MM-DD.db'"
+sudo rsync -a /var/www/data/apc-uploads/ /var/backups/conselho/apc-uploads-AAAA-MM-DD/
 ```
 
 Teste periodicamente a restauração em diretório isolado:
 
 ```bash
-sqlite3 /backup/apc-AAAA-MM-DD.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
+sudo sqlite3 /var/backups/conselho/apc-AAAA-MM-DD.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
 ```
 
 Para restaurar, mantenha a aplicação sem escritas, preserve os dados atuais com outro nome, restaure o banco e a pasta da mesma janela de backup, aplique proprietário/permissões e só então faça o smoke test.

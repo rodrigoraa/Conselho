@@ -12,8 +12,8 @@ final class DashboardController
 
     public function index(Request $request): Response
     {
-        $user=$_SESSION['user'];$filters=$this->filters($request);$plans=$this->plans->list((int)$user['id'],(string)$user['perfil'],$filters);$filterOptions=$this->plans->list((int)$user['id'],(string)$user['perfil'],[]);$metrics=$this->plans->dashboardMetrics((int)$user['id'],(string)$user['perfil']);$events=$this->events->active();$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);
-        return new Response($this->view->render('dashboard',compact('plans','filterOptions','metrics','events','classes','filters')+['title'=>'APCs']));
+        $user=$_SESSION['user'];$filters=$this->filters($request);$plans=$this->plans->list((int)$user['id'],(string)$user['perfil'],$filters);$filterOptions=$this->plans->list((int)$user['id'],(string)$user['perfil'],[]);$metrics=$this->plans->dashboardMetrics((int)$user['id'],(string)$user['perfil']);$events=$this->events->active();$upcomingEvents=$this->events->upcoming(5);$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);
+        return new Response($this->view->render('dashboard',compact('plans','filterOptions','metrics','events','upcomingEvents','classes','filters')+['title'=>'APCs']));
     }
 
     private function filters(Request $request): array
