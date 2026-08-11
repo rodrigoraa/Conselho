@@ -26,7 +26,7 @@ abstract class ApcTestCase extends TestCase
 
     protected function seedEvent(PDO $db): void
     {
-        $db->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por)VALUES(1,2026,'2026-08-15','APC de agosto','JORNADA_FORMATIVA','ESCOLA','Evento de teste','ATIVO',1)");
+        $db->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por,disponibilizado_em,disponibilizado_por)VALUES(1,2026,'2026-08-15','APC de agosto','JORNADA_FORMATIVA','ESCOLA','Evento de teste','ATIVO',1,'2026-08-08 08:00:00',2)");
     }
 
     private function database(): PDO

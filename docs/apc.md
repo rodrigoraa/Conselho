@@ -99,17 +99,19 @@ sudo -u www-data composer apc:import-calendario
 
 O importador valida o CSV inteiro antes de gravar. Ele atualiza pela chave estável e, na primeira execução, concilia um evento já cadastrado com o mesmo ano, data e tipo para preservar seu ID e os planos ligados a ele. Em caso de mais de um candidato, interrompe a transação em vez de escolher silenciosamente. Eventos ausentes no CSV não são apagados. Toda execução registra `CALENDARIO_ESCOLAR_IMPORTADO` na auditoria.
 
-Cada evento ativo possui uma janela automática e inclusiva de preenchimento: abre 7 dias corridos antes da data da APC e encerra ao final do 7º dia posterior. Por exemplo, uma APC em 15/08 fica aberta de 08/08 a 22/08. Fora desse intervalo, planos, entregas e anexos permanecem consultáveis, mas criação, alteração, finalização, reabertura, registro de entrega e inclusão/remoção de anexos são bloqueados também no servidor. Downloads históricos continuam permitidos. O dashboard separa APCs abertas das que ainda aguardam abertura, e o calendário mostra a situação de cada evento.
+Cada evento ativo possui uma janela automática e inclusiva de preenchimento: a liberação pode ocorrer a partir de 7 dias corridos antes da data da APC e o sistema encerra o acesso ao final do 7º dia posterior. Por exemplo, uma APC em 15/08 pode ser disponibilizada de 08/08 a 22/08. Dentro desse intervalo, a coordenação ou a administração precisa clicar em **Disponibilizar aos professores** no painel ou no detalhe do evento. Sem essa ação, a APC permanece somente para consulta. A liberação pode ser suspensa e todas as mudanças ficam auditadas.
+
+Fora da janela, planos, entregas e anexos permanecem consultáveis, mas criação, alteração, finalização, reabertura, registro de entrega e inclusão/remoção de anexos são bloqueados também no servidor. Downloads históricos continuam permitidos. O dashboard e o calendário distinguem os estados aguardando data, aguardando coordenação, disponível e encerrada. Ao aplicar a migration de liberação, eventos que já possuíam planos são marcados como disponibilizados para preservar preenchimentos em andamento; os demais passam a aguardar a coordenação.
 
 ## Perfis e fluxos
 
 ### Professor
 
-O professor vê o calendário ativo e somente seus planos. A criação valida o vínculo ativo em `vinculos_professor_turma` e a janela do evento. O Plano de Ação pode ser salvo como rascunho, receber registros e vários anexos por estudante e ser finalizado enquanto a APC estiver aberta. Plano finalizado fica somente leitura até uma reabertura auditada dentro da mesma janela; depois do encerramento, todo o conteúdo permanece apenas para consulta.
+O professor vê o calendário ativo e somente seus planos. A criação valida o vínculo ativo em `vinculos_professor_turma`, a janela do evento e a liberação feita pela coordenação. O Plano de Ação pode ser salvo como rascunho, receber registros e vários anexos por estudante e ser finalizado enquanto a APC estiver disponível. Plano finalizado fica somente leitura até uma reabertura auditada dentro da mesma janela; depois do encerramento ou da suspensão, todo o conteúdo permanece apenas para consulta.
 
 ### Coordenação
 
-A coordenação vê todos os planos, usa filtros, consulta o plano, a lista de estudantes, notas, observações e anexos autenticados, exporta o consolidado em CSV e pode reabrir plano com motivo obrigatório.
+A coordenação vê todos os planos, usa filtros, consulta o plano, a lista de estudantes, notas, observações e anexos autenticados, exporta o consolidado em CSV e pode reabrir plano com motivo obrigatório. No painel APC, controla a seção **Liberação para os professores**: dentro da janela oficial pode disponibilizar o evento e suspender o acesso, sem receber permissão para alterar calendário ou parâmetros administrativos.
 
 ### Administração
 
@@ -142,6 +144,8 @@ O administrador possui a visão global, gerencia eventos, origem SED/escola, dad
 /apc/planos/{id}
 /apc/planos/{id}/finalizar
 /apc/planos/{id}/reabrir
+/apc/eventos/{id}/disponibilizar
+/apc/eventos/{id}/suspender
 /apc/planos/{id}/entregas/{aluno}
 /apc/entregas/{id}/anexos
 /apc/anexos/{id}/excluir

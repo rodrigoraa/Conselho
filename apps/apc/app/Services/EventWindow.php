@@ -18,9 +18,9 @@ final class EventWindow
 
     public function describe(array $event): array
     {
-        $eventDate=$this->date((string)($event['evento_data']??$event['data']??''),'data da APC');$today=$this->date($this->fixedToday??date('Y-m-d'),'data atual');$opens=$eventDate->modify('-'.self::DAYS_BEFORE.' days');$closes=$eventDate->modify('+'.self::DAYS_AFTER.' days');$eventStatus=(string)($event['evento_status']??$event['status']??'');
-        $state=$eventStatus!=='ATIVO'?'CANCELADA':($today<$opens?'AGUARDANDO':($today>$closes?'ENCERRADA':'ABERTA'));
-        return['state'=>$state,'is_open'=>$state==='ABERTA','opens_on'=>$opens->format('Y-m-d'),'closes_on'=>$closes->format('Y-m-d'),'event_date'=>$eventDate->format('Y-m-d')];
+        $eventDate=$this->date((string)($event['evento_data']??$event['data']??''),'data da APC');$today=$this->date($this->fixedToday??date('Y-m-d'),'data atual');$opens=$eventDate->modify('-'.self::DAYS_BEFORE.' days');$closes=$eventDate->modify('+'.self::DAYS_AFTER.' days');$eventStatus=(string)($event['evento_status']??$event['status']??'');$releasedAt=trim((string)($event['evento_disponibilizado_em']??$event['disponibilizado_em']??''));$isReleased=$releasedAt!=='';$isWithinWindow=$eventStatus==='ATIVO'&&$today>=$opens&&$today<=$closes;
+        $state=$eventStatus!=='ATIVO'?'CANCELADA':($today<$opens?'AGUARDANDO':($today>$closes?'ENCERRADA':($isReleased?'ABERTA':'AGUARDANDO_LIBERACAO')));
+        return['state'=>$state,'is_open'=>$state==='ABERTA','is_released'=>$isReleased,'is_within_window'=>$isWithinWindow,'released_at'=>$releasedAt?:null,'opens_on'=>$opens->format('Y-m-d'),'closes_on'=>$closes->format('Y-m-d'),'event_date'=>$eventDate->format('Y-m-d')];
     }
 
     public function assertOpen(array $event): void
@@ -28,6 +28,7 @@ final class EventWindow
         $window=$this->describe($event);$period='de '.$this->format($window['opens_on']).' a '.$this->format($window['closes_on']);
         if($window['state']==='CANCELADA')throw new HttpException(422,'APC_EVENT_CANCELLED','Não é possível alterar dados de uma APC cancelada.');
         if($window['state']==='AGUARDANDO')throw new HttpException(422,'APC_EVENT_NOT_OPEN','Esta APC ainda não está aberta. O período de preenchimento será '.$period.'.');
+        if($window['state']==='AGUARDANDO_LIBERACAO')throw new HttpException(422,'APC_EVENT_NOT_RELEASED','Esta APC ainda não foi disponibilizada pela coordenação para os professores.');
         if($window['state']==='ENCERRADA')throw new HttpException(422,'APC_EVENT_CLOSED','O período de preenchimento desta APC foi encerrado em '.$this->format($window['closes_on']).'. A janela era '.$period.'.');
     }
 

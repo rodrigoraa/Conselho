@@ -78,7 +78,12 @@ final class EventRepository
 
     public function cancel(int $id): void
     {
-        $this->db->prepare("UPDATE apc_eventos SET status='CANCELADO',atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$id]);
+        $this->db->prepare("UPDATE apc_eventos SET status='CANCELADO',disponibilizado_em=NULL,disponibilizado_por=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$id]);
+    }
+
+    public function setAvailability(int $id,?int $userId): void
+    {
+        $statement=$this->db->prepare('UPDATE apc_eventos SET disponibilizado_em=:momento,disponibilizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');$statement->execute([':momento'=>$userId===null?null:date('Y-m-d H:i:s'),':usuario'=>$userId,':id'=>$id]);
     }
 
     private function parameters(array $data): array

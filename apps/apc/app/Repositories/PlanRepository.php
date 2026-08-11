@@ -10,7 +10,7 @@ final class PlanRepository
 
     public function find(int $id): ?array
     {
-        $statement=$this->db->prepare("SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.origem evento_origem,e.descricao evento_descricao,e.status evento_status,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE p.id=:id AND p.arquivado_em IS NULL GROUP BY p.id");
+        $statement=$this->db->prepare("SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.origem evento_origem,e.descricao evento_descricao,e.status evento_status,e.disponibilizado_em evento_disponibilizado_em,e.disponibilizado_por evento_disponibilizado_por,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE p.id=:id AND p.arquivado_em IS NULL GROUP BY p.id");
         $statement->execute([':id'=>$id]);return$statement->fetch()?:null;
     }
 
@@ -23,7 +23,7 @@ final class PlanRepository
         if(!empty($filters['status'])&&in_array($filters['status'],['RASCUNHO','FINALIZADO'],true)){$where[]='p.status=:status';$params[':status']=$filters['status'];}
         if(!empty($filters['componente'])){$where[]="p.componente_curricular LIKE :componente ESCAPE '\\'";$params[':componente']='%'.$this->escapeLike((string)$filters['componente']).'%';}
         if(!empty($filters['data'])){$where[]='e.data=:data';$params[':data']=$filters['data'];}
-        $sql="SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.status evento_status,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE ".implode(' AND ',$where).' GROUP BY p.id ORDER BY e.data DESC,p.professor_nome_snapshot,p.turma_nome_snapshot,p.componente_curricular';
+        $sql="SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.status evento_status,e.disponibilizado_em evento_disponibilizado_em,e.disponibilizado_por evento_disponibilizado_por,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE ".implode(' AND ',$where).' GROUP BY p.id ORDER BY e.data DESC,p.professor_nome_snapshot,p.turma_nome_snapshot,p.componente_curricular';
         $statement=$this->db->prepare($sql);$statement->execute($params);return$statement->fetchAll();
     }
 

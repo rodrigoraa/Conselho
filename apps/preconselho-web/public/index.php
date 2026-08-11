@@ -21,6 +21,8 @@ try{
  $r->add('GET','/apc',fn($q)=>$apcModule()->dashboard->index($q),$auth);
  $r->add('GET','/apc/calendario',fn($q)=>$apcModule()->calendar->index($q),$auth);
  $r->add('GET','/apc/eventos/{id}',fn($q,$p)=>$apcModule()->calendar->show($q,$p),$auth);
+ $r->add('POST','/apc/eventos/{id}/disponibilizar',fn($q,$p)=>$apcModule()->admin->releaseEvent($q,$p),$coord);
+ $r->add('POST','/apc/eventos/{id}/suspender',fn($q,$p)=>$apcModule()->admin->suspendEvent($q,$p),$coord);
  $r->add('GET','/apc/habilidades',fn($q)=>$apcModule()->curriculum->search($q),$auth);
  $r->add('GET','/apc/planos/novo',fn($q)=>$apcModule()->plans->createForm($q),$professor);
  $r->add('POST','/apc/planos',fn($q)=>$apcModule()->plans->create($q),$professor);
