@@ -157,3 +157,18 @@ body.login-page{--login-navy:#12314a;--login-blue:#0f6cbd;--login-card:rgba(255,
 @media(max-width:760px){.app-header{position:sticky;top:0}.header-shell{padding:0 1rem}.header-top{min-height:4.25rem;grid-template-columns:minmax(0,1fr) auto;gap:.65rem;padding:.55rem 0}.school-brand{min-width:0}.school-logo-frame{width:2.8rem;height:2.8rem;border-radius:.68rem}.school-brand-copy{min-width:0}.school-brand-copy strong{font-size:.96rem}.school-brand-copy small{font-size:.67rem}.desktop-user{display:none!important}.module-context{grid-column:1/-1;grid-row:2;justify-self:stretch;justify-content:space-between;padding:.36rem .58rem}.module-context strong{font-size:.76rem}.app-header .menu-toggle{display:inline-flex!important;align-items:center;gap:.42rem;margin-left:0;padding:.52rem .68rem;border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff}.header-navigation{display:none!important;order:initial!important;align-items:stretch!important;flex-direction:column!important;gap:.8rem!important;width:auto!important;max-height:calc(100vh - 7rem);padding:.85rem 0 1rem!important;overflow-y:auto!important;overflow-x:hidden!important}.header-navigation.open{display:flex!important}.nav-group{align-items:stretch;flex-direction:column;gap:.35rem;min-width:0}.nav-group-label{margin:.1rem 0 .15rem;padding:0 .15rem}.app-header .header-navigation a{justify-content:flex-start;width:100%;padding:.65rem .72rem}.nav-separator{display:none}.mobile-account{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.65rem;margin-top:.15rem;padding:.75rem;border-top:1px solid rgba(255,255,255,.16);border-radius:.55rem;background:rgba(0,0,0,.1)}.mobile-account form{margin:0}.mobile-account .user-copy strong{max-width:none}.mobile-account .header-logout{width:auto}}
 @media(max-width:400px){.school-brand-copy small{display:none}.module-context small{display:none}}
 .app-header .header-navigation .nav-system-link.active,.apc-page .app-header .header-navigation .nav-system-link.active{border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.14);color:#fff;box-shadow:none}
+
+/* Envio simplificado de APC */
+.apc-simple-upload{border-top:4px solid var(--green)}
+.apc-submission-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
+.apc-submission-fields label{margin:0}
+.apc-submission-fields .submission-file-field{grid-column:1/-1;padding:1rem;border:1px dashed #8eb7a2;border-radius:.7rem;background:#f5fbf7}
+.apc-submission-fields .submission-file-field input{margin-top:.5rem;background:#fff}
+.apc-submission-list{display:grid;gap:.85rem}
+.apc-submission-card{display:grid;grid-template-columns:minmax(11rem,.8fr) minmax(16rem,1.5fr) minmax(15rem,1fr);gap:1rem;align-items:center;padding:1rem;border:1px solid var(--border);border-radius:.75rem;background:#fff}
+.apc-submission-card .submission-status{display:flex;flex-wrap:wrap;gap:.4rem;align-content:flex-start}
+.apc-submission-card .submission-copy h3,.apc-submission-card .submission-copy p{margin:.2rem 0}
+.apc-submission-card .submission-copy time,.apc-submission-card .submission-copy small,.apc-submission-card .submission-file small{display:block;color:var(--muted)}
+.apc-submission-card .submission-file{display:grid;gap:.45rem;justify-items:start;min-width:0}
+.apc-submission-card .submission-file strong{max-width:100%;overflow-wrap:anywhere}
+@media(max-width:850px){.apc-submission-fields{grid-template-columns:1fr}.apc-submission-fields .submission-file-field{grid-column:auto}.apc-submission-card{grid-template-columns:1fr}}

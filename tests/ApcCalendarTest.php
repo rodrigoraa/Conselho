@@ -3,9 +3,8 @@
 namespace Tests;
 
 use Apc\Controllers\CalendarController;
-use Apc\Repositories\EventRepository;
-use Apc\Repositories\PlanRepository;
-use Apc\Services\EventWindow;
+use Apc\Repositories\{EventRepository,SubmissionRepository,TermRepository};
+use Apc\Services\SubmissionWindow;
 use Shared\Exceptions\HttpException;
 use Shared\Http\Request;
 use Shared\Support\View;
@@ -23,11 +22,13 @@ final class ApcCalendarTest extends ApcTestCase
     }
     public function testCalendarControllerRendersMonthlyNavigationAndRejectsInvalidMonth():void
     {
-        $db=$this->apcDatabase();$this->seedEvent($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/calendario';$controller=new CalendarController(new EventRepository($db),new PlanRepository($db),new View(dirname(__DIR__).'/apps/apc/resources/views'),new EventWindow('2026-08-11'));$response=$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'8'],[],[]));self::assertStringContainsString('Agosto de 2026',$response->body);self::assertStringContainsString('APC de agosto',$response->body);self::assertStringContainsString('Disponível',$response->body);self::assertStringContainsString('Mês anterior',$response->body);$this->expectException(HttpException::class);$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'13'],[],[]));
+        $db=$this->apcDatabase();$this->seedEvent($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/calendario';$controller=$this->controller($db);$response=$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'8'],[],[]));self::assertStringContainsString('Agosto de 2026',$response->body);self::assertStringContainsString('APC de agosto',$response->body);self::assertStringContainsString('Bimestre aberto',$response->body);self::assertStringContainsString('Mês anterior',$response->body);$this->expectException(HttpException::class);$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'13'],[],[]));
     }
 
-    public function testEventPageShowsReleaseControlOnlyToCoordination():void
+    public function testEventPageExplainsWholeBimesterAndLateStatus():void
     {
-        $db=$this->apcDatabase();$this->seedEvent($db);$db->exec('UPDATE apc_eventos SET disponibilizado_em=NULL,disponibilizado_por=NULL');$controller=new CalendarController(new EventRepository($db),new PlanRepository($db),new View(dirname(__DIR__).'/apps/apc/resources/views'),new EventWindow('2026-08-11'));$_SESSION['user']=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];$_SERVER['REQUEST_URI']='/apc/eventos/1';$coordination=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('Aguardando liberação da coordenação',$coordination->body);self::assertStringContainsString('Disponibilizar aos professores',$coordination->body);self::assertStringContainsString('/apc/eventos/1/disponibilizar',$coordination->body);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$teacher=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringNotContainsString('Controle da coordenação',$teacher->body);self::assertStringNotContainsString('/apc/eventos/1/disponibilizar',$teacher->body);
+        $db=$this->apcDatabase();$this->seedEvent($db);$controller=$this->controller($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/eventos/1';$teacher=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('durante todo o bimestre',$teacher->body);self::assertStringContainsString('entregues com atraso',$teacher->body);self::assertStringContainsString('Anexar arquivo',$teacher->body);self::assertStringNotContainsString('Disponibilizar aos professores',$teacher->body);
     }
+
+    private function controller(\PDO$db):CalendarController{return new CalendarController(new EventRepository($db),new SubmissionRepository($db),new View(dirname(__DIR__).'/apps/apc/resources/views'),new SubmissionWindow(new TermRepository($db),'2026-08-11'));}
 }

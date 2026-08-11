@@ -1,179 +1,169 @@
 # APC — Atividades Pedagógicas Complementares
 
-## Objetivo e arquitetura
+## Fluxo atual
 
-O APC registra planejamento, entregas, notas, observações e comprovações de atividades que já foram aplicadas pelo professor fora do sistema. Ele não gera atividades, não possui acesso de estudante e não escreve no SGDE ou no banco da secretaria.
+O APC é um módulo de envio de arquivos. O professor:
 
-O módulo usa o front controller de `apps/preconselho-web/public/index.php`, a sessão `preconselho_session`, o login por CPF, o CSRF e os middlewares já existentes. Não há segundo login, servidor HTTP, usuário, professor ou cadastro mestre de alunos. O código específico fica em `apps/apc`, sob o namespace `Apc\`.
+1. escolhe o evento;
+2. escolhe a etapa;
+3. escolhe o ano/série;
+4. anexa o modelo pronto.
 
-Os dados permanecem separados:
+Não há preenchimento de plano, habilidades, notas ou entregas por aluno no fluxo principal. Depois do envio, o painel mostra **Arquivo anexado** e identifica se a entrega ocorreu no prazo ou com atraso.
+
+O módulo reutiliza a sessão, o login por CPF, o CSRF e os perfis do Conselho. Não existe segundo cadastro de usuários ou professores. Os dados ficam separados:
 
 ```text
-PRECONSELHO_DB_PATH -> Conselho de Classe, usuários e vínculos
-APC_DB_PATH         -> calendário, planos, entregas, anexos e auditoria APC
-SECRETARIA API      -> fonte oficial e somente leitura de turmas e alunos
-APC_UPLOADS_PATH    -> conteúdo privado dos anexos, fora de public/
+PRECONSELHO_DB_PATH -> usuários e vínculos de professor com turma
+APC_DB_PATH         -> eventos, bimestres, envios e auditoria do APC
+APC_UPLOADS_PATH    -> arquivos privados, fora de public/
 ```
 
-O `usuario_id` gravado no APC é uma referência lógica ao usuário da sessão. Não existe foreign key entre os dois bancos. Nomes de professor, turma e aluno são preservados como snapshots mínimos para manter o histórico.
+As tabelas antigas de planos, currículo, entregas e anexos por aluno não são apagadas. Elas permanecem no banco para preservar o histórico, mas não aparecem na navegação principal do APC simplificado.
 
-## Variáveis de ambiente
+## Vínculos com o Conselho
 
-Adicione ao `.env` do servidor durante a implantação, sem alterar as variáveis atuais:
+As opções de etapa e série não são livres. O APC consulta `vinculos_professor_turma` no banco do Conselho e deriva as opções a partir das turmas ativas do professor.
 
-```env
-APC_DB_PATH=/var/www/data/apc.db
-APC_UPLOADS_PATH=/var/www/data/apc-uploads
-APC_UPLOAD_MAX_BYTES=10485760
-APC_UPLOAD_MAX_FILES=5
+Exemplos:
+
+```text
+7º A                       -> Ensino Fundamental — Anos Finais / 7º ano
+1ª A - Ensino Médio        -> Ensino Médio / 1ª série
 ```
 
-`APC_UPLOAD_MAX_BYTES` é o limite por arquivo. `APC_UPLOAD_MAX_FILES` é o limite de arquivos em um único envio. Ajuste também `upload_max_filesize` e `post_max_size` no PHP-FPM; o segundo precisa comportar a soma dos arquivos e a sobrecarga do formulário.
+Ao salvar, o sistema registra como snapshot todas as turmas vinculadas que correspondem à etapa e série escolhidas. A validação também ocorre no servidor; alterar o HTML não permite enviar para uma série sem vínculo.
 
-PHP precisa da extensão `fileinfo`, usada para detectar o MIME pelo conteúdo. Os formatos aceitos inicialmente são PDF, JPEG, PNG e WebP.
+## Bimestres e atraso
+
+A migration `005_envio_simplificado.sql` registra os limites aprovados no Calendário Escolar da EE São José para 2026:
+
+| Bimestre | Início | Término |
+|---|---:|---:|
+| 1º | 03/02/2026 | 30/04/2026 |
+| 2º | 04/05/2026 | 16/07/2026 |
+| 3º | 03/08/2026 | 30/09/2026 |
+| 4º | 02/10/2026 | 09/12/2026 |
+
+O professor pode enviar desde o primeiro até o último dia do bimestre, inclusive. A data do evento não encerra o envio:
+
+- envio até a data da APC: **Entregue no prazo**;
+- envio depois da data da APC, ainda dentro do bimestre: **Entregue com atraso**;
+- envio depois do término do bimestre: bloqueado no servidor.
+
+O calendário de referência é o **Calendário Escolar 2026 — EE São José**, aprovado pela Ata nº 14/2025, Anexo I da Resolução/SED nº 4490, de 2/12/2025, processo nº 29/090121/2022.
 
 ## Banco e migrations
 
-A migration `apps/apc/database/migrations/001_initial.sql` cria:
+As migrations APC são incrementais e independentes do Conselho. A `005_envio_simplificado.sql` cria:
 
-- `apc_eventos`: calendário por ano letivo, tipo, origem e status;
-- `apc_planos`: Plano de Ação e snapshots de professor/turma;
-- `apc_entregas`: devolução, data, nota e observação por aluno;
-- `apc_anexos`: metadata, SHA-256 e caminho relativo privado;
-- `apc_auditoria`: alterações relevantes do domínio APC;
-- `apc_parametros`: escala mínima/máxima e casas decimais da nota;
-- `migrations`: controle independente das migrations APC.
+- `apc_bimestres`: datas oficiais dos bimestres;
+- `apc_envios`: arquivo, evento, professor, etapa, série, data e situação de atraso;
+- `apc_envio_turmas`: snapshots das turmas provenientes dos vínculos do Conselho;
+- índices para evento, professor e consulta dos vínculos do envio.
 
-A migration incremental `002_curriculo_estruturado.sql` acrescenta `etapa` e `ano_serie` ao plano sem remover os campos legados e cria o catálogo local (`apc_componentes_curriculares`, `apc_habilidades_curriculares`, `apc_habilidade_anos_series`) e as relações interdisciplinares (`apc_plano_componentes`, `apc_plano_habilidades`). Os textos oficiais e os nomes/códigos selecionados são preservados também como snapshots no plano.
+A restrição única em `apc_envios` é:
 
-A migration `003_calendario_escolar_importacao.sql` acrescenta a chave estável e a página da fonte oficial aos eventos. A chave possui índice único e permite reaplicar o calendário sem duplicidade.
+```text
+evento + professor + etapa + série
+```
 
-Para criar ou atualizar somente `apc.db`:
+Um novo envio para a mesma combinação substitui o arquivo anterior de forma transacional e registra `SUBSTITUIR_ARQUIVO_APC` na auditoria. O primeiro envio registra `ANEXAR_ARQUIVO_APC`.
+
+Para aplicar:
 
 ```bash
 cd /var/www/Conselho
-php scripts/console.php migrate-apc
-# equivalente:
-composer migrate:apc
+sudo -u www-data php scripts/console.php migrate-apc
 ```
 
-`composer migrate` continua atuando somente em `PRECONSELHO_DB_PATH` e não executa migrations APC implicitamente.
+O comando esperado inclui:
 
-## Catálogo Curricular
-
-O catálogo é versionado em `apps/apc/resources/curriculo/` e consultado localmente no `apc.db`; a aplicação não acessa a internet quando o professor abre um plano. As fontes primárias são o **Currículo de Referência de Mato Grosso do Sul — Educação Infantil e Ensino Fundamental, versão 1.10** (`https://www.sed.ms.gov.br/wp-content/uploads/2020/02/curriculo_v110.pdf`) e o **Currículo de Referência de Mato Grosso do Sul — Ensino Médio, versão 1.1** (`https://www.sed.ms.gov.br/wp-content/uploads/2022/01/Curriculo-Novo-Ensino-Medio-v1.1.pdf`). O portal institucional de atualização é `https://www.sed.ms.gov.br/informativos/guias-e-manuais/`.
-
-TVT é um componente real, denominado **Terra – Vida – Trabalho**, modalidade `EDUCACAO_DO_CAMPO`. Os dados TVT disponíveis nesta versão vieram da Matriz de Habilidades Essenciais produzida pela SED/MS e estão marcados como `SED_MS_MATRIZ_HABILIDADES_ESSENCIAIS` / `ESSENCIAL_RECOMPOSICAO`. Trata-se de catálogo **parcial**, voltado também à recomposição, e não do referencial curricular TVT completo. Não há conteúdo criado por IA para preencher lacunas.
-
-Depois da migration, faça a importação idempotente:
-
-```bash
-sudo -u www-data php scripts/console.php apc-importar-curriculo
-# equivalente:
-sudo -u www-data composer apc:import-curriculo
+```text
+Aplicada: 005_envio_simplificado.sql
+Migrations do APC concluídas.
 ```
 
-O importador valida todos os CSVs antes da transação, atualiza registros por chave estável, não apaga ausentes, preserva ativações/desativações administrativas e registra `CURRICULO_IMPORTADO`. Executá-lo novamente não duplica componentes, habilidades nem associações.
+## Calendário de eventos
 
-O professor seleciona etapa, ano/série, múltiplos componentes e múltiplas habilidades. A busca exige etapa, ano e componente, pesquisa código, descrição, unidade temática e objeto de conhecimento e retorna no máximo 30 itens. A validação server-side rejeita habilidade de componente não selecionado ou não associada ao ano. `competencias_habilidades` foi mantido como complemento/observação manual; planos antigos sem relações estruturadas continuam exibindo e editando os textos legados.
+`/apc/calendario` continua usando `apc_eventos` como fonte única. No desktop há calendário mensal; no celular, lista cronológica. `/apc/eventos/{id}` mostra a data da APC, o bimestre de envio e apenas os arquivos permitidos ao usuário atual.
 
-Somente ADMIN acessa `/apc/admin/curriculo` para importar os CSVs versionados, cadastrar, editar, ativar e desativar. Código de habilidade pode ficar vazio. Desativação é lógica (`ativo = 0`): o item deixa de aparecer para novas associações, mas seus snapshots e vínculos históricos continuam visíveis. Para atualizar o catálogo futuramente, substitua os CSVs somente após extração e conferência contra nova publicação oficial, execute os testes e rode novamente o importador.
-
-## Calendário
-
-`/apc/calendario` reutiliza `apc_eventos` como fonte única. A visualização mensal é gerada em PHP, permite mês anterior, hoje, mês seguinte e seleção dos anos realmente existentes. Em telas pequenas vira uma lista cronológica. `/apc/eventos/{id}` mostra os detalhes; professor vê apenas seus planos, enquanto coordenação/admin recebe contagem agregada. O dashboard mostra os cinco próximos eventos ativos a partir da data atual, em ordem, com acesso ao calendário completo.
-
-O calendário oficial de 2026 da EE São José está versionado em `apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv`, com referência ao Anexo I da Resolução/SED nº 4490, de 2/12/2025, à Ata nº 14/2025 e ao processo nº 29/090121/2022. São 18 APCs:
-
-- jornadas formativas (10): 03, 04, 05 e 06/02; 09/05; 04, 05, 06 e 07/08; 02/10;
-- emendas de feriado (3): 20/04; 13 e 16/10;
-- conselhos de classe (5): 30/04; 16/07; 30/09; 05 e 07/12.
-
-Depois da migration, importe pelo botão **Importar calendário oficial** em `/apc/admin` ou pela linha de comando:
+O calendário oficial de 2026 está em `apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv`. A importação é idempotente:
 
 ```bash
 sudo -u www-data php scripts/console.php apc-importar-calendario
-# equivalente:
-sudo -u www-data composer apc:import-calendario
 ```
 
-O importador valida o CSV inteiro antes de gravar. Ele atualiza pela chave estável e, na primeira execução, concilia um evento já cadastrado com o mesmo ano, data e tipo para preservar seu ID e os planos ligados a ele. Em caso de mais de um candidato, interrompe a transação em vez de escolher silenciosamente. Eventos ausentes no CSV não são apagados. Toda execução registra `CALENDARIO_ESCOLAR_IMPORTADO` na auditoria.
-
-Cada evento ativo possui uma janela automática e inclusiva de preenchimento: a liberação pode ocorrer a partir de 7 dias corridos antes da data da APC e o sistema encerra o acesso ao final do 7º dia posterior. Por exemplo, uma APC em 15/08 pode ser disponibilizada de 08/08 a 22/08. Dentro desse intervalo, a coordenação ou a administração precisa clicar em **Disponibilizar aos professores** no painel ou no detalhe do evento. Sem essa ação, a APC permanece somente para consulta. A liberação pode ser suspensa e todas as mudanças ficam auditadas.
-
-Fora da janela, planos, entregas e anexos permanecem consultáveis, mas criação, alteração, finalização, reabertura, registro de entrega e inclusão/remoção de anexos são bloqueados também no servidor. Downloads históricos continuam permitidos. O dashboard e o calendário distinguem os estados aguardando data, aguardando coordenação, disponível e encerrada. Ao aplicar a migration de liberação, eventos que já possuíam planos são marcados como disponibilizados para preservar preenchimentos em andamento; os demais passam a aguardar a coordenação.
-
-## Perfis e fluxos
+## Perfis
 
 ### Professor
 
-O professor vê o calendário ativo e somente seus planos. A criação valida o vínculo ativo em `vinculos_professor_turma`, a janela do evento e a liberação feita pela coordenação. O Plano de Ação pode ser salvo como rascunho, receber registros e vários anexos por estudante e ser finalizado enquanto a APC estiver disponível. Plano finalizado fica somente leitura até uma reabertura auditada dentro da mesma janela; depois do encerramento ou da suspensão, todo o conteúdo permanece apenas para consulta.
+- visualiza apenas seus envios;
+- recebe somente etapas e séries das próprias turmas vinculadas;
+- envia ou substitui um arquivo durante o bimestre;
+- baixa apenas os próprios arquivos.
 
 ### Coordenação
 
-A coordenação vê todos os planos, usa filtros, consulta o plano, a lista de estudantes, notas, observações e anexos autenticados, exporta o consolidado em CSV e pode reabrir plano com motivo obrigatório. No painel APC, controla a seção **Liberação para os professores**: dentro da janela oficial pode disponibilizar o evento e suspender o acesso, sem receber permissão para alterar calendário ou parâmetros administrativos.
+- visualiza todos os envios;
+- vê professor, evento, etapa, série, turmas, arquivo e situação;
+- baixa os arquivos para conferência;
+- não envia em nome do professor.
 
 ### Administração
 
-O administrador possui a visão global, gerencia eventos, origem SED/escola, dados excepcionais, escala de nota, cancelamentos, reaberturas e auditoria em `/apc/admin`.
+- possui a mesma visão global da coordenação;
+- gerencia os eventos em `/apc/admin`;
+- consulta a auditoria.
 
-## Rotas
+## Rotas principais
 
 ### GET
 
 ```text
-/                              portal autenticado
-/conselho                      dashboard original do Conselho
-/apc                           dashboard APC
-/apc/calendario                calendário mensal autenticado
-/apc/eventos/{id}              detalhe do evento e planos permitidos
-/apc/habilidades               busca autenticada do catálogo (JSON, limite 30)
-/apc/planos/novo               formulário do professor
-/apc/planos/{id}               Plano de Ação
-/apc/planos/{id}/entregas      alunos e entregas
-/apc/anexos/{id}               download privado e autorizado
-/apc/relatorios                consolidado da coordenação/admin
-/apc/admin                     calendário, parâmetros e auditoria
-/apc/admin/curriculo           administração do catálogo (ADMIN)
+/apc                           formulário e arquivos enviados
+/apc/calendario                calendário mensal
+/apc/eventos/{id}              detalhe do evento
+/apc/envios/{id}/arquivo       download privado e autorizado
+/apc/admin                     eventos e auditoria (ADMIN)
 ```
 
 ### POST
 
 ```text
-/apc/planos
-/apc/planos/{id}
-/apc/planos/{id}/finalizar
-/apc/planos/{id}/reabrir
-/apc/eventos/{id}/disponibilizar
-/apc/eventos/{id}/suspender
-/apc/planos/{id}/entregas/{aluno}
-/apc/entregas/{id}/anexos
-/apc/anexos/{id}/excluir
-/apc/admin/calendario/importar
-/apc/admin/eventos
-/apc/admin/eventos/{id}
-/apc/admin/eventos/{id}/cancelar
-/apc/admin/parametros
-/apc/admin/curriculo/componentes
-/apc/admin/curriculo/importar
-/apc/admin/curriculo/componentes/{id}
-/apc/admin/curriculo/componentes/{id}/alternar
-/apc/admin/curriculo/habilidades
-/apc/admin/curriculo/habilidades/{id}
-/apc/admin/curriculo/habilidades/{id}/alternar
+/apc/envios                    envio/substituição do arquivo (PROFESSOR)
+/apc/admin/calendario/importar importação do calendário (ADMIN)
+/apc/admin/eventos             criação de evento (ADMIN)
+/apc/admin/eventos/{id}        alteração de evento (ADMIN)
+/apc/admin/eventos/{id}/cancelar cancelamento de evento (ADMIN)
 ```
 
-Todos os POSTs usam o token CSRF existente. Middleware de perfil e autorização de recurso são aplicados separadamente; conhecer um ID não concede acesso.
+Rotas antigas continuam no código somente para compatibilidade com registros históricos e não aparecem no menu principal.
 
 ## Uploads e privacidade
 
-Arquivos nunca são gravados em `public/`. O serviço valida erro de upload, limite, MIME real com `finfo`, nome e integridade, gera nome físico aleatório e calcula SHA-256. A metadata é inserida em transação e o arquivo é movido para o destino definitivo antes do commit; falhas limpam o staging e fazem rollback. A exclusão primeiro coloca o arquivo em quarentena, confirma banco/auditoria e só então o remove.
+Arquivos nunca são gravados em `public/`. O serviço:
 
-O download recebe somente o ID numérico do anexo. O caminho vem do banco, passa por formato estrito e é resolvido sob `APC_UPLOADS_PATH`. A rota valida sessão, perfil, dono do plano e vínculo da turma antes de ler o arquivo. A resposta usa `Cache-Control: private, no-store`, `nosniff` e `Content-Disposition: attachment`.
+- valida o MIME real com `fileinfo`;
+- aplica `APC_UPLOAD_MAX_BYTES`;
+- aceita PDF, DOC, DOCX, ODT, JPEG, PNG e WebP;
+- gera nome físico aleatório;
+- calcula SHA-256;
+- usa staging, transação e rollback;
+- restringe download ao professor proprietário, coordenação ou administração;
+- responde com `Cache-Control: private, no-store` e `Content-Disposition: attachment`.
+
+Variáveis:
+
+```env
+APC_DB_PATH=/var/www/data/apc.db
+APC_UPLOADS_PATH=/var/www/data/apc-uploads
+APC_UPLOAD_MAX_BYTES=10485760
+```
+
+O PHP-FPM precisa ter `fileinfo` habilitado. `upload_max_filesize` e `post_max_size` devem aceitar pelo menos o limite configurado mais a sobrecarga do formulário.
 
 ## Permissões Linux
-
-Exemplo para PHP-FPM executando como `www-data` (substitua usuário e grupo se o servidor usar outro):
 
 ```bash
 sudo install -d -o www-data -g www-data -m 0770 /var/www/data
@@ -185,83 +175,47 @@ sudo -u www-data test -w /var/www/data/apc.db
 sudo -u www-data test -w /var/www/data/apc-uploads
 ```
 
-O usuário do PHP precisa escrever no arquivo do banco, no diretório do banco por causa de WAL/SHM e em todo `APC_UPLOADS_PATH`. Código-fonte e `public/` não devem ser graváveis pelo PHP.
+O usuário do PHP precisa escrever no arquivo do banco, no diretório que o contém por causa de WAL/SHM e em todo `APC_UPLOADS_PATH`.
 
 ## Implantação segura
-
-Os comandos abaixo são um roteiro; não são executados automaticamente:
 
 ```bash
 cd /var/www/Conselho
 
-# 1. Coloque a aplicação em manutenção e faça os backups do Conselho e do APC.
 sudo install -d -o root -g root -m 0700 /var/backups/conselho
 stamp=$(date +%F-%H%M%S)
 sudo php scripts/backup.php "/var/backups/conselho/preconselho-$stamp.db"
 sudo sqlite3 /var/www/data/apc.db ".backup '/var/backups/conselho/apc-$stamp.db'"
 sudo rsync -a /var/www/data/apc-uploads/ "/var/backups/conselho/apc-uploads-$stamp/"
 
-# 2. Atualize o código conforme o processo já adotado pela escola.
 composer install --no-dev --optimize-autoloader
-
-# 3. Confira PHP e configuração.
 php scripts/check-requirements.php
-
-# 4. Crie diretórios/permissões e ajuste as variáveis APC no .env.
-
-# 5. Execute somente a migration APC explicitamente.
 sudo -u www-data php scripts/console.php migrate-apc
-
-# 6. Importe o catálogo curricular versionado.
-sudo -u www-data php scripts/console.php apc-importar-curriculo
-
-# 7. Importe o calendário escolar oficial versionado.
 sudo -u www-data php scripts/console.php apc-importar-calendario
-
-# 8. Verifique os bancos sem modificar dados do Conselho.
 sqlite3 /var/www/data/apc.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
-
-# 9. Faça smoke test autenticado em /, /conselho, /apc, /apc/calendario e em um download autorizado.
 ```
 
-Nenhum novo virtual host, processo PHP ou serviço colaborativo é necessário. Não reinicie o Hocuspocus por causa do APC. Recarregue o PHP-FPM apenas se o procedimento operacional do servidor exigir a leitura de novo `.env` ou `php.ini`.
+Depois, faça um teste autenticado como professor e coordenação em `/apc`, `/apc/calendario` e em um download autorizado. Não é necessário reiniciar o serviço de colaboração.
 
-## Backup e restauração
+## Backup, restauração e rollback
 
-Banco e uploads formam um único conjunto lógico. Para uma cópia coerente, suspenda gravações APC durante o backup:
+`apc.db` e `apc-uploads/` formam um único conjunto lógico. O backup e a restauração devem usar arquivos da mesma janela de tempo.
 
-```bash
-sudo install -d -o root -g root -m 0700 /var/backups/conselho
-sudo sqlite3 /var/www/data/apc.db ".backup '/var/backups/conselho/apc-AAAA-MM-DD.db'"
-sudo rsync -a /var/www/data/apc-uploads/ /var/backups/conselho/apc-uploads-AAAA-MM-DD/
-```
+No rollback de código:
 
-Teste periodicamente a restauração em diretório isolado:
-
-```bash
-sudo sqlite3 /var/backups/conselho/apc-AAAA-MM-DD.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
-```
-
-Para restaurar, mantenha a aplicação sem escritas, preserve os dados atuais com outro nome, restaure o banco e a pasta da mesma janela de backup, aplique proprietário/permissões e só então faça o smoke test.
-
-## Rollback
-
-Como o APC não altera o schema do Conselho, o rollback de código não precisa apagar dados:
-
-1. interrompa novas escritas e faça backup de `apc.db` e `apc-uploads/`;
-2. restaure a versão anterior do código da aplicação;
-3. preserve `APC_DB_PATH` e `APC_UPLOADS_PATH` sem executar `DROP` ou remoção;
-4. valide login, `/`, `/conselho`, documentos, consolidados e administração do Conselho;
-5. quando o código APC corrigido voltar, execute `composer migrate:apc` novamente; migrations já registradas serão ignoradas.
+1. suspenda novas escritas e faça novo backup;
+2. restaure a versão anterior do código;
+3. não apague `apc.db` nem `apc-uploads/`;
+4. não execute `DROP`, `git clean` ou recriação do banco;
+5. valide o Conselho separadamente.
 
 ## Testes
 
-Os testes usam SQLite em memória e diretórios temporários; não apontam para `/var/www/data`:
+Os testes usam SQLite em memória e diretórios temporários:
 
 ```bash
 composer test
 npm run collaboration:check
-npm run collaboration:verify
 ```
 
-A suíte APC cobre portal, proteção de rotas, vínculo de turma, IDOR entre professores, acesso global da coordenação, calendário oficial idempotente e conciliação, limites inclusivos da janela de 7 dias, bloqueio de escrita após o prazo, filtro visual e validação server-side de componentes por etapa, plano, finalização/reabertura, entregas, notas, indisponibilidade da Secretaria API, PDF/JPEG/PNG, MIME falso, limite, múltiplos anexos, download autorizado, bloqueio não autorizado e path traversal.
+A cobertura inclui bimestres, atraso, último dia permitido, bloqueio após o prazo, vínculo de série, armazenamento privado, substituição, auditoria, IDOR entre professores, acesso da coordenação, painel simplificado, calendário e preservação das tabelas antigas.

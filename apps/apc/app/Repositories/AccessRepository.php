@@ -23,4 +23,19 @@ final class AccessRepository
         foreach($this->classesFor($userId,$role)as$class)if((int)$class['id']===$classId)return$class;
         return null;
     }
+
+    public function seriesFor(int$userId,string$role):array
+    {
+        $grouped=[];foreach($this->classesFor($userId,$role)as$class){$series=$this->seriesFromName((string)$class['nome']);if($series===null)continue;$key=$series['etapa'].'|'.$series['ano_serie'];if(!isset($grouped[$key]))$grouped[$key]=$series+['turmas'=>[]];$grouped[$key]['turmas'][]=$class;}usort($grouped,static fn(array$a,array$b):int=>[$a['ordem_etapa'],$a['ordem_serie']]<=>[$b['ordem_etapa'],$b['ordem_serie']]);return array_values($grouped);
+    }
+
+    public function classesForSeries(int$userId,string$role,string$stage,string$year):array
+    {
+        foreach($this->seriesFor($userId,$role)as$series)if($series['etapa']===$stage&&$series['ano_serie']===$year)return$series['turmas'];return[];
+    }
+
+    private function seriesFromName(string$name):?array
+    {
+        $upper=mb_strtoupper(trim($name));if(!preg_match('/(?:^|\D)([1-9])\s*(?:º|°|ª)?/u',$upper,$matches))return null;$number=(int)$matches[1];$highSchool=$number<=3&&(preg_match('/\b(?:EM|ENSINO\s+M[EÉ]DIO|M[EÉ]DIO|S[EÉ]RIE)\b/u',$upper)===1||preg_match('/[1-3]\s*ª/u',$upper)===1);if($highSchool)return['etapa'=>'EM','ano_serie'=>'EM'.$number,'rotulo_etapa'=>'Ensino Médio','rotulo_serie'=>$number.'ª série','ordem_etapa'=>3,'ordem_serie'=>$number];if($number<=5)return['etapa'=>'EF_AI','ano_serie'=>'EF'.$number,'rotulo_etapa'=>'Ensino Fundamental — Anos Iniciais','rotulo_serie'=>$number.'º ano','ordem_etapa'=>1,'ordem_serie'=>$number];return['etapa'=>'EF_AF','ano_serie'=>'EF'.$number,'rotulo_etapa'=>'Ensino Fundamental — Anos Finais','rotulo_serie'=>$number.'º ano','ordem_etapa'=>2,'ordem_serie'=>$number];
+    }
 }

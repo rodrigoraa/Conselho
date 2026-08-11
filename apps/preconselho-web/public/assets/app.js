@@ -9,6 +9,23 @@ menuButton?.addEventListener('click',()=>setMenuOpen(menuButton.getAttribute('ar
 mainNav?.querySelectorAll('a').forEach(link=>link.addEventListener('click',()=>setMenuOpen(false)));
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&menuButton?.getAttribute('aria-expanded')==='true'){setMenuOpen(false);menuButton.focus()}});
 
+const apcSubmission=document.querySelector('[data-apc-submission]');
+if(apcSubmission){
+  const stage=apcSubmission.querySelector('[data-submission-stage]');
+  const year=apcSubmission.querySelector('[data-submission-year]');
+  const classes=apcSubmission.querySelector('[data-submission-classes]');
+  const refreshSeries=()=>{
+    const selectedStage=stage?.value||'';
+    let available=0;
+    year?.querySelectorAll('option[data-stage]').forEach(option=>{const visible=option.dataset.stage===selectedStage;option.hidden=!visible;option.disabled=!visible;if(visible)available++});
+    if(year){if(year.selectedOptions[0]?.disabled)year.value='';year.disabled=!selectedStage||available===0;}
+    if(classes)classes.textContent=selectedStage?`${available} série(s) vinculada(s) disponível(is).`:'Escolha a etapa para visualizar suas séries vinculadas.';
+  };
+  stage?.addEventListener('change',()=>{if(year)year.value='';refreshSeries()});
+  year?.addEventListener('change',()=>{const selected=year.selectedOptions[0];if(classes)classes.textContent=selected?.value?`Turma(s) vinculada(s): ${selected.dataset.classes||'não identificadas'}`:'Selecione uma série.'});
+  refreshSeries();
+}
+
 document.querySelectorAll('.student-list details').forEach(block=>{const box=block.querySelector('input[type="checkbox"]');const sync=()=>{block.classList.toggle('selected',box.checked);block.querySelectorAll('input:not([type="checkbox"]), textarea').forEach(field=>field.disabled=!box.checked)};box?.addEventListener('change',sync);sync()});
 
 const rows=[...document.querySelectorAll('#reports-table tbody tr')];

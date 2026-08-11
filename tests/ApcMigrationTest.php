@@ -10,7 +10,7 @@ final class ApcMigrationTest extends ApcTestCase
     public function testCreatesApcSchemaInSeparateDatabaseWithExpectedIndexesAndParameters(): void
     {
         $db=$this->apcDatabase();$tables=$db->query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'apc_%' ORDER BY name")->fetchAll(\PDO::FETCH_COLUMN);
-        self::assertSame(['apc_anexos','apc_auditoria','apc_componentes_curriculares','apc_entregas','apc_eventos','apc_habilidade_anos_series','apc_habilidades_curriculares','apc_parametros','apc_plano_componentes','apc_plano_habilidades','apc_planos'],$tables);self::assertSame(3,(int)$db->query('SELECT COUNT(*) FROM apc_parametros')->fetchColumn());$columns=$db->query('PRAGMA table_info(apc_eventos)')->fetchAll(\PDO::FETCH_ASSOC);self::assertContains('disponibilizado_em',array_column($columns,'name'));self::assertContains('disponibilizado_por',array_column($columns,'name'));
+        self::assertSame(['apc_anexos','apc_auditoria','apc_bimestres','apc_componentes_curriculares','apc_entregas','apc_envio_turmas','apc_envios','apc_eventos','apc_habilidade_anos_series','apc_habilidades_curriculares','apc_parametros','apc_plano_componentes','apc_plano_habilidades','apc_planos'],$tables);self::assertSame(3,(int)$db->query('SELECT COUNT(*) FROM apc_parametros')->fetchColumn());self::assertSame(4,(int)$db->query('SELECT COUNT(*) FROM apc_bimestres WHERE ano_letivo=2026')->fetchColumn());$columns=$db->query('PRAGMA table_info(apc_eventos)')->fetchAll(\PDO::FETCH_ASSOC);self::assertContains('disponibilizado_em',array_column($columns,'name'));self::assertContains('disponibilizado_por',array_column($columns,'name'));
     }
 
     public function testUniqueConstraintsPreventDuplicatePlanAndStudentDelivery(): void
