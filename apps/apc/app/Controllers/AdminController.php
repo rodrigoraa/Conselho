@@ -1,0 +1,39 @@
+<?php declare(strict_types=1);
+
+namespace Apc\Controllers;
+
+use Apc\Repositories\{AuditRepository,EventRepository,SettingsRepository};
+use Apc\Services\{EventService,SettingsService};
+use PreConselho\Support\Csrf;
+use Shared\Http\{Request,Response};
+use Shared\Support\View;
+
+final class AdminController
+{
+    public function __construct(private readonly EventRepository $events,private readonly SettingsRepository $settings,private readonly AuditRepository $audit,private readonly EventService $eventService,private readonly SettingsService $settingsService,private readonly View $view) {}
+
+    public function index(Request $request): Response
+    {
+        $year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>2000,'max_range'=>2100]]);$events=$this->events->all($year===false?null:(int)$year,true);$settings=$this->settings->all();$audit=$this->audit->recent();return new Response($this->view->render('admin',compact('events','settings','audit','year')+['title'=>'Administração APC']));
+    }
+
+    public function createEvent(Request $request): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->eventService->save(null,$request->body,(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC criado.';return Response::redirect('/apc/admin#calendario');
+    }
+
+    public function updateEvent(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->eventService->save((int)$params['id'],$request->body,(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC atualizado.';return Response::redirect('/apc/admin#calendario');
+    }
+
+    public function cancelEvent(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->eventService->cancel((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC cancelado sem excluir o histórico.';return Response::redirect('/apc/admin#calendario');
+    }
+
+    public function updateSettings(Request $request): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->settingsService->update($request->body,(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Parâmetros APC atualizados.';return Response::redirect('/apc/admin#parametros');
+    }
+}

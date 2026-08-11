@@ -1,0 +1,33 @@
+<?php
+$user=$_SESSION['user'];$isTeacher=$user['perfil']==='PROFESSOR';$firstName=explode(' ',trim((string)$user['nome']))[0];
+$typeLabels=['JORNADA_FORMATIVA'=>'Jornada formativa','CONSELHO_CLASSE'=>'Conselho de classe','EMENDA_FERIADO'=>'Emenda de feriado','EXCEPCIONAL'=>'Excepcional','OUTRO'=>'Outro'];
+$professors=[];foreach($filterOptions as$plan)$professors[(int)$plan['professor_usuario_id']]=$plan['professor_nome_snapshot'];asort($professors,SORT_NATURAL|SORT_FLAG_CASE);
+ob_start();
+?>
+<section class="page-heading"><div><p class="eyebrow"><?=$isTeacher?'Área do professor':'Visão da coordenação'?></p><h1>APCs — Olá, <?=e($firstName)?>!</h1><p><?=$isTeacher?'Planeje as atividades, registre as devoluções e mantenha as comprovações dos estudantes em ambiente privado.':'Acompanhe planos, devoluções e pendências de todas as turmas.'?></p></div><div class="heading-actions"><?php if($isTeacher):?><a class="button primary" href="/apc/planos/novo">Criar Plano de Ação</a><?php else:?><a class="button" href="/apc/relatorios">Relatório consolidado</a><?php endif;?></div></section>
+
+<div class="metrics teacher-summary" aria-label="Resumo APC"><article class="metric static"><span class="metric-label">Planos</span><strong><?=e((int)($metrics['total']??0))?></strong><small>Total no acompanhamento</small></article><article class="metric static status-card-rascunho"><span class="metric-label">Pendentes</span><strong><?=e((int)($metrics['pendentes']??0))?></strong><small>Rascunhos em aberto</small></article><article class="metric static status-card-aprovado"><span class="metric-label">Finalizados</span><strong><?=e((int)($metrics['finalizados']??0))?></strong><small>Planos concluídos</small></article></div>
+
+<?php if(!$isTeacher):?>
+<form class="card apc-filter-grid" method="get" action="/apc" aria-label="Filtros APC">
+    <label>Ano letivo <input name="ano" type="number" min="2000" max="2100" value="<?=e($filters['ano'])?>"></label>
+    <label>Evento <select name="evento"><option value="">Todos</option><?php foreach($events as$event):?><option value="<?=e($event['id'])?>" <?=$filters['evento']==$event['id']?'selected':''?>><?=e(date('d/m/Y',strtotime($event['data'])).' · '.$event['titulo'])?></option><?php endforeach;?></select></label>
+    <label>Data <input name="data" type="date" value="<?=e($filters['data'])?>"></label>
+    <label>Turma <select name="turma"><option value="">Todas</option><?php foreach($classes as$class):?><option value="<?=e($class['id'])?>" <?=$filters['turma']==$class['id']?'selected':''?>><?=e($class['nome'])?></option><?php endforeach;?></select></label>
+    <label>Professor <select name="professor"><option value="">Todos</option><?php foreach($professors as$id=>$name):?><option value="<?=e($id)?>" <?=$filters['professor']==$id?'selected':''?>><?=e($name)?></option><?php endforeach;?></select></label>
+    <label>Componente <input name="componente" value="<?=e($filters['componente'])?>" maxlength="160"></label>
+    <label>Status <select name="status"><option value="">Todos</option><option value="RASCUNHO" <?=$filters['status']==='RASCUNHO'?'selected':''?>>Rascunho</option><option value="FINALIZADO" <?=$filters['status']==='FINALIZADO'?'selected':''?>>Finalizado</option></select></label>
+    <div class="actions"><a class="button" href="/apc">Limpar</a><button class="primary">Filtrar</button></div>
+</form>
+<?php endif;?>
+
+<?php if($isTeacher):?>
+<section class="card"><div class="section-heading"><div><p class="eyebrow">Calendário</p><h2>Próximas APCs e eventos ativos</h2></div></div>
+    <?php if(!$events):?><div class="empty-state compact"><h3>Nenhum evento APC ativo</h3><p>A administração ainda não publicou datas no calendário.</p></div><?php else:?><div class="apc-event-grid"><?php foreach($events as$event):?><article class="apc-event-card"><div><span class="badge"><?=e($typeLabels[$event['tipo']]??$event['tipo'])?></span><time datetime="<?=e($event['data'])?>"><?=e(date('d/m/Y',strtotime($event['data'])))?></time><h3><?=e($event['titulo'])?></h3><p><?=e($event['descricao'])?></p><small><?=e($event['origem']==='SED'?'Origem: SED':'Origem: escola')?><?=$event['atividade_fornecida_sed']?' · Atividade fornecida pela SED':''?></small><small class="event-classes">Turmas vinculadas: <?=e($classes?implode(', ',array_column($classes,'nome')):'nenhuma')?></small></div><a class="button" href="/apc/planos/novo?evento=<?=e($event['id'])?>">Criar plano</a></article><?php endforeach;?></div><?php endif;?>
+</section>
+<?php endif;?>
+
+<section class="card"><div class="section-heading"><div><p class="eyebrow">Acompanhamento</p><h2><?=$isTeacher?'Meus Planos de Ação':'Planos de Ação da escola'?></h2></div></div>
+<?php if(!$plans):?><div class="empty-state"><span aria-hidden="true">✓</span><h3>Nenhum plano encontrado</h3><p><?=$isTeacher?'Use uma data do calendário para criar o primeiro Plano de Ação.':'Ajuste os filtros ou aguarde o cadastro dos planos pelos professores.'?></p></div><?php else:?><div class="table"><table><thead><tr><th>APC</th><?php if(!$isTeacher):?><th>Professor</th><?php endif;?><th>Turma / Componente</th><th>Status</th><th>Devoluções</th><th>Ação</th></tr></thead><tbody><?php foreach($plans as$plan):$total=$plan['total_alunos_snapshot'];$delivered=(int)$plan['entregues'];?><tr><td><strong><?=e(date('d/m/Y',strtotime($plan['evento_data'])))?></strong><small><?=e($plan['evento_titulo'])?></small></td><?php if(!$isTeacher):?><td><?=e($plan['professor_nome_snapshot'])?></td><?php endif;?><td><strong><?=e($plan['turma_nome_snapshot'])?></strong><small><?=e($plan['componente_curricular'])?></small></td><td><span class="badge status-<?=e(strtolower($plan['status']))?>"><?=e($plan['status']==='FINALIZADO'?'Finalizado':'Rascunho')?></span></td><td><strong><?=e($delivered)?><?=($total!==null?' de '.e($total):'')?></strong><small><?=e((int)$plan['anexos'])?> anexo(s)</small></td><td class="row-actions"><a class="button small-button" href="/apc/planos/<?=e($plan['id'])?>">Abrir plano</a><a class="button small-button" href="/apc/planos/<?=e($plan['id'])?>/entregas">Entregas</a></td></tr><?php endforeach;?></tbody></table></div><?php endif;?>
+</section>
+<?php $content=ob_get_clean();require dirname(__DIR__,3).'/preconselho-web/resources/views/layout.php';

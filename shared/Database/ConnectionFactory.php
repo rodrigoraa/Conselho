@@ -10,6 +10,12 @@ final class ConnectionFactory
         $pdo = new PDO('sqlite:' . $path, null, null, self::options());
         self::pragmas($pdo, false); return $pdo;
     }
+    public static function apc(string $path): PDO
+    {
+        self::ensureDirectory($path);
+        $pdo = new PDO('sqlite:' . $path, null, null, self::options());
+        self::pragmas($pdo, false); return $pdo;
+    }
     public static function secretariaReadOnly(string $path): PDO
     {
         if (!is_file($path)) throw new RuntimeException('Banco da secretaria indisponível.');

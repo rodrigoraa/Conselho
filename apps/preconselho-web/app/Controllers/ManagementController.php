@@ -33,7 +33,7 @@ final class ManagementController
 
     public function deleteReport(Request $request, array $params): Response
     {
-        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteReport((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Relatório excluído.';return Response::redirect('/');
+        Csrf::verify($request->body['_csrf']??null);(new AdminDeletionService($this->repository))->deleteReport((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Relatório excluído.';return Response::redirect('/conselho');
     }
 
     public function deletePeriod(Request $request, array $params): Response

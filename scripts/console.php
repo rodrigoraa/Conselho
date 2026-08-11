@@ -7,23 +7,32 @@ use Shared\Env;
 require dirname(__DIR__).'/vendor/autoload.php';
 Env::load(dirname(__DIR__).'/.env');
 $command=$argv[1]??'help';
-$path=Env::get('PRECONSELHO_DB_PATH',dirname(__DIR__).'/storage/preconselho.db')??'';
-$db=ConnectionFactory::preconselho($path);
+$root=dirname(__DIR__);
+
+$migrate=function(\PDO $db,string $directory,string $label):void{
+    $db->exec('CREATE TABLE IF NOT EXISTS migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,nome TEXT NOT NULL UNIQUE,executada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+    $files=glob(rtrim($directory,'/\\').'/*.sql')?:[];
+    sort($files);
+    foreach($files as$file){
+        $name=basename($file);$check=$db->prepare('SELECT 1 FROM migrations WHERE nome=?');$check->execute([$name]);
+        if($check->fetchColumn())continue;
+        $db->beginTransaction();
+        try{$db->exec((string)file_get_contents($file));$db->prepare('INSERT INTO migrations(nome)VALUES(?)')->execute([$name]);$db->commit();echo "Aplicada: $name\n";}
+        catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}
+    }
+    echo 'Migrations'.($label===''?'':' '.$label)." concluídas.\n";
+};
 
 try{
-    if($command==='migrate'){
-        $db->exec('CREATE TABLE IF NOT EXISTS migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,nome TEXT NOT NULL UNIQUE,executada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-        $files=glob(dirname(__DIR__).'/apps/preconselho-web/database/migrations/*.sql')?:[];
-        sort($files);
-        foreach($files as$file){
-            $name=basename($file);$check=$db->prepare('SELECT 1 FROM migrations WHERE nome=?');$check->execute([$name]);
-            if($check->fetchColumn())continue;
-            $db->beginTransaction();
-            try{$db->exec((string)file_get_contents($file));$db->prepare('INSERT INTO migrations(nome)VALUES(?)')->execute([$name]);$db->commit();echo "Aplicada: $name\n";}
-            catch(Throwable$e){if($db->inTransaction())$db->rollBack();throw$e;}
-        }
-        echo "Migrations concluídas.\n";
-    }elseif($command==='seed'){
+    if($command==='migrate-apc'){
+        $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';
+        $migrate(ConnectionFactory::apc($path),$root.'/apps/apc/database/migrations','do APC');
+    }else{
+        $path=Env::get('PRECONSELHO_DB_PATH',$root.'/storage/preconselho.db')??'';
+        $db=ConnectionFactory::preconselho($path);
+        if($command==='migrate'){
+            $migrate($db,$root.'/apps/preconselho-web/database/migrations','');
+        }elseif($command==='seed'){
         $users=[
             ['Administrador','admin@escola.local','52998224725','ADMIN'],
             ['Coordenação','coordenacao@escola.local','11144477735','COORDENADOR'],
@@ -54,7 +63,8 @@ try{
         $statement=$db->prepare('UPDATE usuarios SET cpf=?,alterar_senha=0,atualizado_em=CURRENT_TIMESTAMP WHERE email=? AND excluido_em IS NULL');$statement->execute([$cpf,$email]);
         if($statement->rowCount()!==1)throw new RuntimeException('Usuário não encontrado pelo e-mail informado.');
         echo 'CPF vinculado. O usuário já pode entrar com '.Cpf::format($cpf).".\n";
-    }else{
-        echo "Comandos: migrate | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+        }else{
+            echo "Comandos: migrate | migrate-apc | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+        }
     }
 }catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

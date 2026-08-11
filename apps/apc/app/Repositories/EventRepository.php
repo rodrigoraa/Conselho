@@ -1,0 +1,51 @@
+<?php declare(strict_types=1);
+
+namespace Apc\Repositories;
+
+use PDO;
+
+final class EventRepository
+{
+    public function __construct(public readonly PDO $db) {}
+
+    public function all(?int $year=null,bool $includeCancelled=true): array
+    {
+        $where=[];$params=[];
+        if($year!==null){$where[]='ano_letivo=:ano';$params[':ano']=$year;}
+        if(!$includeCancelled)$where[]="status='ATIVO'";
+        $sql='SELECT * FROM apc_eventos'.($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY data DESC,id DESC';
+        $statement=$this->db->prepare($sql);$statement->execute($params);return$statement->fetchAll();
+    }
+
+    public function active(): array
+    {
+        return$this->db->query("SELECT * FROM apc_eventos WHERE status='ATIVO' ORDER BY data,id")->fetchAll();
+    }
+
+    public function find(int $id): ?array
+    {
+        $statement=$this->db->prepare('SELECT * FROM apc_eventos WHERE id=:id');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;
+    }
+
+    public function insert(array $data): int
+    {
+        $statement=$this->db->prepare('INSERT INTO apc_eventos(ano_letivo,data,titulo,tipo,origem,descricao,justificativa,numero_processo,documento_referencia,atividade_fornecida_sed,status,criado_por)VALUES(:ano,:data,:titulo,:tipo,:origem,:descricao,:justificativa,:processo,:documento,:sed,:status,:usuario)');
+        $statement->execute($this->parameters($data)+[':usuario'=>$data['criado_por']]);return(int)$this->db->lastInsertId();
+    }
+
+    public function update(int $id,array $data): void
+    {
+        $statement=$this->db->prepare('UPDATE apc_eventos SET ano_letivo=:ano,data=:data,titulo=:titulo,tipo=:tipo,origem=:origem,descricao=:descricao,justificativa=:justificativa,numero_processo=:processo,documento_referencia=:documento,atividade_fornecida_sed=:sed,status=:status,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
+        $statement->execute($this->parameters($data)+[':id'=>$id]);
+    }
+
+    public function cancel(int $id): void
+    {
+        $this->db->prepare("UPDATE apc_eventos SET status='CANCELADO',atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$id]);
+    }
+
+    private function parameters(array $data): array
+    {
+        return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':justificativa'=>$data['justificativa'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':sed'=>$data['atividade_fornecida_sed'],':status'=>$data['status']];
+    }
+}
