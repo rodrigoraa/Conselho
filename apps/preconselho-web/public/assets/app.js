@@ -19,6 +19,8 @@ if(apcSubmission){
   const fileField=apcSubmission.querySelector('[data-apc-file-input]');
   const review=apcSubmission.querySelector('[data-apc-upload-review]');
   const previewPdf=apcSubmission.querySelector('[data-apc-preview-pdf]');
+  const previewPdfMobile=apcSubmission.querySelector('[data-apc-preview-pdf-mobile]');
+  const openPdf=apcSubmission.querySelector('[data-apc-open-pdf]');
   const previewImage=apcSubmission.querySelector('[data-apc-preview-image]');
   const previewUnavailable=apcSubmission.querySelector('[data-apc-preview-unavailable]');
   const confirmSubmit=apcSubmission.querySelector('[data-apc-confirm-submit]');
@@ -35,6 +37,8 @@ if(apcSubmission){
   const resetFilePreview=()=>{
     clearPreviewUrl();
     if(previewPdf){previewPdf.hidden=true;previewPdf.removeAttribute('src')}
+    if(previewPdfMobile)previewPdfMobile.hidden=true;
+    if(openPdf)openPdf.removeAttribute('href');
     if(previewImage){previewImage.hidden=true;previewImage.removeAttribute('src')}
     if(previewUnavailable)previewUnavailable.hidden=true;
     if(review)review.hidden=true;
@@ -47,7 +51,7 @@ if(apcSubmission){
     if(nameCopy)nameCopy.textContent=file.name;
     if(sizeCopy)sizeCopy.textContent=`${formatFileSize(file.size)}${file.type?` · ${file.type}`:''}`;
     refreshReviewContext();previewUrl=URL.createObjectURL(file);const lowerName=file.name.toLocaleLowerCase('pt-BR');
-    if(file.type==='application/pdf'||lowerName.endsWith('.pdf')){if(previewPdf){previewPdf.src=previewUrl;previewPdf.hidden=false}}
+    if(file.type==='application/pdf'||lowerName.endsWith('.pdf')){if(previewPdf){previewPdf.src=previewUrl;previewPdf.hidden=false}if(openPdf)openPdf.href=previewUrl;if(previewPdfMobile)previewPdfMobile.hidden=false}
     else if(file.type.startsWith('image/')||/\.(?:jpe?g|png|webp)$/i.test(lowerName)){if(previewImage){previewImage.src=previewUrl;previewImage.alt=`Pré-visualização de ${file.name}`;previewImage.hidden=false}}
     else{clearPreviewUrl();if(previewUnavailable)previewUnavailable.hidden=false}
     if(review)review.hidden=false;if(confirmSubmit)confirmSubmit.disabled=false;review?.scrollIntoView({behavior:'smooth',block:'nearest'});

@@ -38,6 +38,7 @@ $user=$_SESSION['user'];$firstName=explode(' ',trim((string)$user['nome']))[0];$
         <dl class="apc-upload-review-context"><div><dt>Evento</dt><dd data-apc-review-event>—</dd></div><div><dt>Turma</dt><dd data-apc-review-class>—</dd></div><div><dt>Arquivo</dt><dd><strong data-apc-review-name>—</strong><small data-apc-review-size></small></dd></div></dl>
         <div class="apc-local-preview" data-apc-preview-content>
             <iframe title="Pré-visualização local do PDF selecionado" data-apc-preview-pdf hidden></iframe>
+            <div class="apc-preview-pdf-mobile" data-apc-preview-pdf-mobile hidden><span aria-hidden="true">PDF</span><div><strong>PDF pronto para conferência</strong><p>Abra o arquivo em tela cheia no visualizador do seu celular. Depois, volte para esta página para confirmar o envio.</p><a class="button primary" href="#" target="_blank" rel="noopener" data-apc-open-pdf>Abrir PDF para conferir</a></div></div>
             <img alt="Pré-visualização local do arquivo selecionado" data-apc-preview-image hidden>
             <div class="apc-preview-unavailable" data-apc-preview-unavailable hidden><span aria-hidden="true">DOC</span><div><strong>Pré-visualização interna indisponível para este formato</strong><p>O arquivo foi selecionado corretamente. Para conferir documentos Word ou ODT, abra-o no seu computador antes de confirmar.</p></div></div>
         </div>
