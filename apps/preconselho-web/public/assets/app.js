@@ -50,6 +50,40 @@ if(apcSubmission){
   refreshStages();
 }
 
+const apcViewTabs=[...document.querySelectorAll('[data-apc-view-tab]')];
+const apcViewPanels=[...document.querySelectorAll('[data-apc-view-panel]')];
+if(apcViewTabs.length&&apcViewPanels.length){
+  const activateApcView=(view,updateHash=false)=>{
+    const selected=apcViewPanels.some(panel=>panel.dataset.apcViewPanel===view)?view:'tracking';
+    apcViewTabs.forEach(tab=>{const active=tab.dataset.apcViewTab===selected;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1});
+    apcViewPanels.forEach(panel=>{panel.hidden=panel.dataset.apcViewPanel!==selected});
+    if(updateHash)history.replaceState(null,'',selected==='files'?'#arquivos':'#acompanhamento');
+  };
+  apcViewTabs.forEach(tab=>tab.addEventListener('click',()=>activateApcView(tab.dataset.apcViewTab||'tracking',true)));
+  apcViewTabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();const direction=event.key==='ArrowRight'?1:-1;const target=apcViewTabs[(index+direction+apcViewTabs.length)%apcViewTabs.length];activateApcView(target.dataset.apcViewTab||'tracking',true);target.focus()}));
+  activateApcView(location.hash==='#arquivos'?'files':'tracking');
+  window.addEventListener('hashchange',()=>activateApcView(location.hash==='#arquivos'?'files':'tracking'));
+}
+
+const apcFileCards=[...document.querySelectorAll('[data-apc-file-card]')];
+const apcFileSearch=document.querySelector('[data-apc-file-search]');
+const apcFileEvent=document.querySelector('[data-apc-file-event]');
+const apcFileStatus=document.querySelector('[data-apc-file-status]');
+const apcFileCount=document.querySelector('[data-apc-file-count]');
+const apcFileEmpty=document.querySelector('[data-apc-file-empty]');
+const filterApcFiles=()=>{
+  const term=(apcFileSearch?.value||'').toLocaleLowerCase('pt-BR').trim();
+  const eventId=apcFileEvent?.value||'';
+  const status=apcFileStatus?.value||'';
+  let visible=0;
+  apcFileCards.forEach(card=>{const show=(!term||card.textContent.toLocaleLowerCase('pt-BR').includes(term))&&(!eventId||card.dataset.eventId===eventId)&&(!status||card.dataset.deliveryStatus===status);card.hidden=!show;if(show)visible++});
+  if(apcFileCount)apcFileCount.textContent=String(visible);
+  if(apcFileEmpty)apcFileEmpty.hidden=visible!==0;
+};
+apcFileSearch?.addEventListener('input',filterApcFiles);
+apcFileEvent?.addEventListener('change',filterApcFiles);
+apcFileStatus?.addEventListener('change',filterApcFiles);
+
 document.querySelectorAll('.student-list details').forEach(block=>{const box=block.querySelector('input[type="checkbox"]');const sync=()=>{block.classList.toggle('selected',box.checked);block.querySelectorAll('input:not([type="checkbox"]), textarea').forEach(field=>field.disabled=!box.checked)};box?.addEventListener('change',sync);sync()});
 
 const rows=[...document.querySelectorAll('#reports-table tbody tr')];

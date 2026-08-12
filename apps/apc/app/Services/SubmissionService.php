@@ -43,7 +43,7 @@ final class SubmissionService
         $submitted=[];foreach($submissions as$submission)foreach($this->submissionClassIds($submission)as$classId)$submitted[$classId][]=(int)$submission['evento_id'];
         $available=[];$future=[];
         foreach($this->events->active()as$event){
-            $window=$this->window->describe($event);if(in_array($window['state'],['ENCERRADO','SEM_BIMESTRE'],true))continue;
+            $window=$this->window->describe($event);if($window['state']==='SEM_BIMESTRE')continue;
             $requirements=[];$sentCount=0;
             foreach($series as$item)foreach($item['turmas']as$class){$classId=(int)$class['id'];$sent=in_array((int)$event['id'],$submitted[$classId]??[],true);if($sent)$sentCount++;$requirements[]=$item+['turma'=>$class,'turma_id_externo'=>$classId,'turma_nome'=>(string)$class['nome'],'sent'=>$sent];}
             $total=count($requirements);$status=$total===0?'SEM_VINCULO':($sentCount===$total?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'));
@@ -98,6 +98,17 @@ final class SubmissionService
     public function file(int$id,array$user):array
     {
         $submission=$this->submissions->find($id)??throw new HttpException(404,'APC_SUBMISSION_NOT_FOUND','Arquivo APC não encontrado.');$role=(string)($user['perfil']??'');if($role==='PROFESSOR'&&(int)$submission['professor_usuario_id']!==(int)$user['id'])throw new HttpException(403,'APC_FORBIDDEN','Você não pode acessar o arquivo de outro professor.');if(!in_array($role,['PROFESSOR','COORDENADOR','ADMIN'],true))throw new HttpException(403,'APC_FORBIDDEN','Você não pode acessar este arquivo.');$submission['caminho_absoluto']=$this->absolute((string)$submission['caminho_relativo']);return$submission;
+    }
+
+    public function delete(int$id,array$user,string$ip,string$userAgent):void
+    {
+        if(!in_array((string)($user['perfil']??''),['COORDENADOR','ADMIN'],true))throw new HttpException(403,'APC_FORBIDDEN','Apenas a coordenação ou a administração pode excluir um envio de APC.');
+        $submission=$this->submissions->find($id)??throw new HttpException(404,'APC_SUBMISSION_NOT_FOUND','Envio de APC não encontrado.');$absolute=$this->absolute((string)$submission['caminho_relativo'],false);$quarantine=null;
+        if(is_file($absolute)){$quarantine=$absolute.'.deleting-'.bin2hex(random_bytes(8));if(!rename($absolute,$quarantine))throw new HttpException(500,'APC_SUBMISSION_DELETE_FAILED','Não foi possível preparar a remoção segura do arquivo.');}
+        $this->submissions->db->beginTransaction();
+        try{$this->submissions->delete($id);$this->audit->record((int)$user['id'],'EXCLUIR','apc_envios',$id,array_diff_key($submission,['caminho_relativo'=>true,'nome_armazenado'=>true]),null,$ip,$userAgent);$this->submissions->db->commit();}
+        catch(\Throwable$exception){if($this->submissions->db->inTransaction())$this->submissions->db->rollBack();if($quarantine!==null&&is_file($quarantine))@rename($quarantine,$absolute);throw$exception;}
+        if($quarantine!==null&&is_file($quarantine)&&!unlink($quarantine))error_log('Falha ao limpar arquivo de envio APC removido: '.$id);
     }
 
     private function prepare(array$file):array

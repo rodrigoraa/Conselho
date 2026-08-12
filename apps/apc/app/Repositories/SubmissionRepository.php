@@ -25,6 +25,11 @@ final class SubmissionRepository
         $this->db->prepare('DELETE FROM apc_envio_turmas WHERE envio_id=:envio')->execute([':envio'=>$id]);$statement=$this->db->prepare('INSERT INTO apc_envio_turmas(envio_id,turma_id_externo,turma_nome_snapshot)VALUES(:envio,:turma,:nome)');foreach($classes as$class)$statement->execute([':envio'=>$id,':turma'=>(int)$class['id'],':nome'=>(string)$class['nome']]);
     }
 
+    public function delete(int$id):void
+    {
+        $this->db->prepare('DELETE FROM apc_envios WHERE id=:id')->execute([':id'=>$id]);
+    }
+
     public function find(int$id):?array
     {
         $statement=$this->db->prepare($this->select().' WHERE s.id=:id');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;

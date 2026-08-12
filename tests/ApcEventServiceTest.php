@@ -23,10 +23,10 @@ final class ApcEventServiceTest extends ApcTestCase
         $db=$this->apcDatabase();$this->seedEvent($db);$db->exec('UPDATE apc_eventos SET disponibilizado_em=NULL,disponibilizado_por=NULL');$events=new EventRepository($db);$service=new EventService($events,new AuditRepository($db),new EventWindow('2026-08-11'));$coord=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];$service->setAvailability(1,true,$coord,'127.0.0.1','phpunit');$released=$events->find(1);self::assertNotNull($released['disponibilizado_em']);self::assertSame(2,(int)$released['disponibilizado_por']);self::assertTrue((new EventWindow('2026-08-11'))->describe($released)['is_open']);$service->setAvailability(1,false,$coord,'127.0.0.1','phpunit');self::assertNull($events->find(1)['disponibilizado_em']);self::assertSame(['DISPONIBILIZAR','SUSPENDER_DISPONIBILIZACAO'],$db->query("SELECT acao FROM apc_auditoria WHERE entidade='apc_eventos' ORDER BY id")->fetchAll(\PDO::FETCH_COLUMN));
     }
 
-    public function testTeacherCannotReleaseAndCoordinationCannotBypassDateWindow():void
+    public function testTeacherCannotReleaseButCoordinationCanOpenAnotherSemester():void
     {
-        $db=$this->apcDatabase();$this->seedEvent($db);$db->exec('UPDATE apc_eventos SET disponibilizado_em=NULL,disponibilizado_por=NULL');$events=new EventRepository($db);$service=new EventService($events,new AuditRepository($db),new EventWindow('2026-08-01'));
+        $db=$this->apcDatabase();$this->seedEvent($db);$db->exec("UPDATE apc_eventos SET data='2026-03-15',disponibilizado_em=NULL,disponibilizado_por=NULL");$events=new EventRepository($db);$service=new EventService($events,new AuditRepository($db),new EventWindow('2026-08-12'));
         try{$service->setAvailability(1,true,['id'=>3,'perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');self::fail('Professor não deveria liberar APC.');}catch(HttpException$exception){self::assertSame(403,$exception->status);}
-        try{$service->setAvailability(1,true,['id'=>2,'perfil'=>'COORDENADOR'],'127.0.0.1','phpunit');self::fail('Coordenação não deveria antecipar a janela oficial.');}catch(HttpException$exception){self::assertSame('APC_EVENT_NOT_OPEN',$exception->errorCode);}
+        $service->setAvailability(1,true,['id'=>2,'perfil'=>'COORDENADOR'],'127.0.0.1','phpunit');self::assertNotNull($events->find(1)['disponibilizado_em']);
     }
 }

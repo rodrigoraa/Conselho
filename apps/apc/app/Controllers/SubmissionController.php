@@ -31,6 +31,11 @@ final class SubmissionController
         Csrf::verify($request->body['_csrf']??null);$file=$_FILES['arquivo']??[];if(!is_array($file))throw new HttpException(422,'APC_UPLOAD_INVALID','Selecione um arquivo válido.');$this->service->submit($request->body,$file,$_SESSION['user'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Arquivo da APC anexado com sucesso.';return Response::redirect('/apc');
     }
 
+    public function delete(Request$request,array$params):Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->service->delete((int)$params['id'],$_SESSION['user'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Envio da APC excluído. A turma voltou a ficar pendente para o professor.';return Response::redirect('/apc');
+    }
+
     public function download(Request$request,array$params):Response
     {
         $file=$this->service->file((int)$params['id'],$_SESSION['user']);$contents=file_get_contents($file['caminho_absoluto']);if($contents===false)throw new HttpException(404,'APC_SUBMISSION_FILE_MISSING','O arquivo da APC não está disponível.');$fallback='apc.'.pathinfo((string)$file['nome_armazenado'],PATHINFO_EXTENSION);$disposition='attachment; filename="'.$fallback.'"; filename*=UTF-8\'\''.rawurlencode((string)$file['nome_original']);return new Response($contents,200,['Content-Type'=>(string)$file['mime_type'],'Content-Length'=>(string)strlen($contents),'Content-Disposition'=>$disposition,'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);

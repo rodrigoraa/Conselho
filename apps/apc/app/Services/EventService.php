@@ -36,13 +36,10 @@ final class EventService
     public function setAvailability(int $id,bool $available,array $user,string $ip,string $userAgent): void
     {
         if(!in_array((string)($user['perfil']??''),['ADMIN','COORDENADOR'],true))throw new HttpException(403,'APC_FORBIDDEN','Apenas a coordenação ou a administração pode disponibilizar uma APC.');
-        $before=$this->events->find($id)??throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');$window=$this->window()->describe($before);
+        $before=$this->events->find($id)??throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
         if($before['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_CANCELLED','Uma APC cancelada não pode ser disponibilizada.');
-        if($available&&!$window['is_within_window']){
-            if($window['state']==='AGUARDANDO')throw new HttpException(422,'APC_EVENT_NOT_OPEN','Esta APC só poderá ser disponibilizada a partir de '.$this->formatDate($window['opens_on']).'.');
-            throw new HttpException(422,'APC_EVENT_CLOSED','O prazo desta APC foi encerrado em '.$this->formatDate($window['closes_on']).'.');
-        }
-        if($available===$window['is_released'])return;
+        $isReleased=trim((string)($before['disponibilizado_em']??''))!=='';
+        if($available===$isReleased)return;
         $this->events->db->beginTransaction();
         try{
             $this->events->setAvailability($id,$available?(int)$user['id']:null);$after=$this->events->find($id);$action=$available?'DISPONIBILIZAR':'SUSPENDER_DISPONIBILIZACAO';$this->audit->record((int)$user['id'],$action,'apc_eventos',$id,['disponibilizado_em'=>$before['disponibilizado_em']??null,'disponibilizado_por'=>$before['disponibilizado_por']??null],['disponibilizado_em'=>$after['disponibilizado_em']??null,'disponibilizado_por'=>$after['disponibilizado_por']??null],$ip,$userAgent);$this->events->db->commit();
