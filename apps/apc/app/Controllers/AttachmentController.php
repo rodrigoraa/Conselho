@@ -19,7 +19,7 @@ final class AttachmentController
 
     public function download(Request $request,array $params): Response
     {
-        $file=$this->service->file((int)$params['id'],$_SESSION['user']);$contents=file_get_contents($file['caminho_absoluto']);if($contents===false)throw new HttpException(404,'APC_ATTACHMENT_FILE_MISSING','O arquivo do anexo não está disponível.');
+        $stored=$this->service->contents((int)$params['id'],$_SESSION['user']);$file=$stored['file'];$contents=$stored['contents'];
         $fallback='anexo.'.pathinfo((string)$file['nome_armazenado'],PATHINFO_EXTENSION);$disposition='attachment; filename="'.$fallback.'"; filename*=UTF-8\'\''.rawurlencode((string)$file['nome_original']);
         return new Response($contents,200,['Content-Type'=>(string)$file['mime_type'],'Content-Length'=>(string)strlen($contents),'Content-Disposition'=>$disposition,'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
     }

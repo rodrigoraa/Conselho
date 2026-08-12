@@ -1,8 +1,9 @@
 <?php declare(strict_types=1);
 
 use PreConselho\Support\Cpf;
-use Apc\Repositories\{AuditRepository,CurriculumRepository,EventRepository};
-use Apc\Services\{CalendarImporter,CurriculumImporter};
+use Apc\Repositories\{AuditRepository,CurriculumRepository,DeliveryRepository,EventRepository,SubmissionRepository};
+use Apc\Services\{CalendarImporter,CurriculumImporter,StorageMigrationService};
+use Apc\Storage\StorageFactory;
 use Shared\Database\ConnectionFactory;
 use Shared\Env;
 
@@ -29,6 +30,12 @@ try{
     if($command==='migrate-apc'){
         $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';
         $migrate(ConnectionFactory::apc($path),$root.'/apps/apc/database/migrations','do APC');
+    }elseif($command==='apc-storage-check'){
+        $storage=StorageFactory::fromEnvironment($root);foreach($storage->health()as$label=>$status)echo $label.': '.$status."\n";
+    }elseif($command==='apc-migrate-storage'){
+        $target=mb_strtolower(trim((string)($argv[2]??'')));if($target==='')throw new RuntimeException('Uso: apc-migrate-storage google_drive [--dry-run] [--limit=N] [--id=N] [--type=submission|attachment] [--delete-local]');$options=['dry_run'=>false,'delete_local'=>false,'limit'=>100,'id'=>null,'type'=>null];
+        foreach(array_slice($argv,3)as$argument){if($argument==='--dry-run')$options['dry_run']=true;elseif($argument==='--delete-local')$options['delete_local']=true;elseif(str_starts_with($argument,'--limit='))$options['limit']=max(1,(int)substr($argument,8));elseif(str_starts_with($argument,'--id='))$options['id']=max(1,(int)substr($argument,5));elseif(str_starts_with($argument,'--type='))$options['type']=substr($argument,7);else throw new RuntimeException('Opção desconhecida: '.$argument);}
+        $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';$db=ConnectionFactory::apc($path);$migration=new StorageMigrationService(new SubmissionRepository($db),new DeliveryRepository($db),new AuditRepository($db),StorageFactory::fromEnvironment($root));$summary=$migration->migrate($target,$options,static function(string$message):void{echo$message."\n";});echo "Selecionados: {$summary['selected']}\nMigrados: {$summary['migrated']}\nFalhas: {$summary['failed']}\nCópias locais removidas: {$summary['local_deleted']}\n";if($summary['failed']>0)exit(2);
     }elseif($command==='apc-importar-curriculo'){
         $path=Env::get('APC_DB_PATH',$root.'/storage/apc.db')??'';$db=ConnectionFactory::apc($path);$importer=new CurriculumImporter(new CurriculumRepository($db),new AuditRepository($db),$root.'/apps/apc/resources/curriculo');$summary=$importer->import();
         echo "Componentes processados: {$summary['componentes']}\nHabilidades únicas processadas: {$summary['habilidades']}\nAssociações ano/série processadas: {$summary['associacoes']}\nLinhas curriculares lidas: {$summary['linhas']}\n";
@@ -75,7 +82,7 @@ try{
         if($statement->rowCount()!==1)throw new RuntimeException('Usuário não encontrado pelo e-mail informado.');
         echo 'CPF vinculado. O usuário já pode entrar com '.Cpf::format($cpf).".\n";
         }else{
-            echo "Comandos: migrate | migrate-apc | apc-importar-curriculo | apc-importar-calendario | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
+            echo "Comandos: migrate | migrate-apc | apc-importar-curriculo | apc-importar-calendario | apc-storage-check | apc-migrate-storage google_drive [opções] | seed | create-admin CPF NOME | set-cpf EMAIL-ANTIGO CPF\n";
         }
     }
 }catch(Throwable$e){fwrite(STDERR,"Erro: {$e->getMessage()}\n");exit(1);}

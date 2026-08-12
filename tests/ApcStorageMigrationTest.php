@@ -1,0 +1,20 @@
+<?php declare(strict_types=1);
+
+namespace Tests;
+
+use PDO;
+use PHPUnit\Framework\TestCase;
+
+final class ApcStorageMigrationTest extends TestCase
+{
+    public function testMigrationMarksLegacyRowsLocalAndAcceptsDriveRowsWithoutRelativePath():void
+    {
+        $db=new PDO('sqlite::memory:');$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);$db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE,PDO::FETCH_ASSOC);$db->exec('PRAGMA foreign_keys=ON');$directory=dirname(__DIR__).'/apps/apc/database/migrations';
+        foreach(['001_initial.sql','002_curriculo_estruturado.sql','003_calendario_escolar_importacao.sql','004_liberacao_coordenacao.sql','005_envio_simplificado.sql','006_envio_por_turma.sql']as$file)$db->exec((string)file_get_contents($directory.'/'.$file));
+        $db->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por)VALUES(1,2026,'2026-08-15','APC','OUTRO','ESCOLA','','ATIVO',1);INSERT INTO apc_envios(id,evento_id,bimestre_id,professor_usuario_id,professor_nome_snapshot,etapa,ano_serie,turma_id_externo,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,atrasado,dias_atraso,enviado_em)VALUES(1,1,3,10,'Professor','EF_AF','EF7',70,'antiga.pdf','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf','application/pdf',100,'".str_repeat('a',64)."','envios/2026/08/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf',0,0,'2026-08-11 10:00:00');INSERT INTO apc_envio_turmas(envio_id,turma_id_externo,turma_nome_snapshot)VALUES(1,70,'7º A');INSERT INTO apc_planos(id,evento_id,professor_usuario_id,professor_nome_snapshot,turma_id_externo,turma_nome_snapshot,componente_curricular)VALUES(1,1,10,'Professor',70,'7º A','Matemática');INSERT INTO apc_entregas(id,plano_id,aluno_id_externo,aluno_nome_snapshot)VALUES(1,1,100,'Aluno');INSERT INTO apc_anexos(id,entrega_id,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,enviado_por)VALUES(1,1,'antigo.pdf','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf','application/pdf',100,'".str_repeat('b',64)."','2026/08/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf',10)");
+        $db->beginTransaction();$db->exec((string)file_get_contents($directory.'/007_storage_drivers.sql'));$db->commit();
+        $submission=$db->query('SELECT storage_driver,storage_file_id,storage_folder_id,caminho_relativo FROM apc_envios WHERE id=1')->fetch();$attachment=$db->query('SELECT storage_driver,storage_file_id,storage_folder_id,caminho_relativo FROM apc_anexos WHERE id=1')->fetch();self::assertSame('local',$submission['storage_driver']);self::assertNull($submission['storage_file_id']);self::assertSame('envios/2026/08/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf',$submission['caminho_relativo']);self::assertSame('local',$attachment['storage_driver']);self::assertSame('2026/08/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf',$attachment['caminho_relativo']);
+        $db->exec("INSERT INTO apc_envios(evento_id,bimestre_id,professor_usuario_id,professor_nome_snapshot,etapa,ano_serie,turma_id_externo,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,storage_driver,storage_file_id,storage_folder_id,atrasado,dias_atraso,enviado_em)VALUES(1,3,11,'Outro','EF_AF','EF7',71,'drive.pdf','interno.pdf','application/pdf',100,'".str_repeat('c',64)."',NULL,'google_drive','drive-file-1','drive-folder-1',0,0,'2026-08-11');INSERT INTO apc_anexos(entrega_id,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,storage_driver,storage_file_id,storage_folder_id,enviado_por)VALUES(1,'drive.pdf','interno-2.pdf','application/pdf',100,'".str_repeat('d',64)."',NULL,'google_drive','drive-file-2','drive-folder-1',10)");
+        self::assertSame(2,(int)$db->query("SELECT COUNT(*) FROM apc_envios WHERE storage_driver='google_drive' OR storage_driver='local'")->fetchColumn());self::assertSame(2,(int)$db->query("SELECT COUNT(*) FROM apc_anexos WHERE storage_driver='google_drive' OR storage_driver='local'")->fetchColumn());self::assertSame([],$db->query('PRAGMA foreign_key_check')->fetchAll());self::assertSame('ok',$db->query('PRAGMA integrity_check')->fetchColumn());
+    }
+}

@@ -50,6 +50,11 @@ if(apcSubmission){
   refreshStages();
 }
 
+document.querySelectorAll('[data-apc-upload-form]').forEach(form=>form.addEventListener('submit',event=>{
+  if(form.dataset.submitting==='1'){event.preventDefault();return}
+  form.dataset.submitting='1';form.setAttribute('aria-busy','true');form.querySelectorAll('button[type="submit"],button:not([type])').forEach(button=>{button.disabled=true;button.dataset.originalText=button.textContent||'';button.textContent='Enviando…'});
+}));
+
 const apcViewTabs=[...document.querySelectorAll('[data-apc-view-tab]')];
 const apcViewPanels=[...document.querySelectorAll('[data-apc-view-panel]')];
 if(apcViewTabs.length&&apcViewPanels.length){

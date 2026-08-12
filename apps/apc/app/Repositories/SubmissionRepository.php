@@ -15,9 +15,9 @@ final class SubmissionRepository
 
     public function save(?int$id,array$data):int
     {
-        $parameters=[':evento'=>$data['evento_id'],':bimestre'=>$data['bimestre_id'],':usuario'=>$data['professor_usuario_id'],':professor'=>$data['professor_nome_snapshot'],':etapa'=>$data['etapa'],':serie'=>$data['ano_serie'],':turma'=>$data['turma_id_externo']??null,':original'=>$data['nome_original'],':armazenado'=>$data['nome_armazenado'],':mime'=>$data['mime_type'],':tamanho'=>$data['tamanho_bytes'],':sha'=>$data['sha256'],':caminho'=>$data['caminho_relativo'],':atrasado'=>$data['atrasado'],':dias'=>$data['dias_atraso'],':enviado'=>$data['enviado_em']];
-        if($id===null){$statement=$this->db->prepare('INSERT INTO apc_envios(evento_id,bimestre_id,professor_usuario_id,professor_nome_snapshot,etapa,ano_serie,turma_id_externo,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,atrasado,dias_atraso,enviado_em)VALUES(:evento,:bimestre,:usuario,:professor,:etapa,:serie,:turma,:original,:armazenado,:mime,:tamanho,:sha,:caminho,:atrasado,:dias,:enviado)');$statement->execute($parameters);return(int)$this->db->lastInsertId();}
-        $statement=$this->db->prepare('UPDATE apc_envios SET bimestre_id=:bimestre,professor_nome_snapshot=:professor,nome_original=:original,nome_armazenado=:armazenado,mime_type=:mime,tamanho_bytes=:tamanho,sha256=:sha,caminho_relativo=:caminho,atrasado=:atrasado,dias_atraso=:dias,enviado_em=:enviado,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');$statement->execute(array_intersect_key($parameters,array_flip([':bimestre',':professor',':original',':armazenado',':mime',':tamanho',':sha',':caminho',':atrasado',':dias',':enviado']))+[':id'=>$id]);return$id;
+        $parameters=[':evento'=>$data['evento_id'],':bimestre'=>$data['bimestre_id'],':usuario'=>$data['professor_usuario_id'],':professor'=>$data['professor_nome_snapshot'],':etapa'=>$data['etapa'],':serie'=>$data['ano_serie'],':turma'=>$data['turma_id_externo']??null,':original'=>$data['nome_original'],':armazenado'=>$data['nome_armazenado'],':mime'=>$data['mime_type'],':tamanho'=>$data['tamanho_bytes'],':sha'=>$data['sha256'],':caminho'=>$data['caminho_relativo']??null,':driver'=>$data['storage_driver']??'local',':file_id'=>$data['storage_file_id']??null,':folder_id'=>$data['storage_folder_id']??null,':atrasado'=>$data['atrasado'],':dias'=>$data['dias_atraso'],':enviado'=>$data['enviado_em']];
+        if($id===null){$statement=$this->db->prepare('INSERT INTO apc_envios(evento_id,bimestre_id,professor_usuario_id,professor_nome_snapshot,etapa,ano_serie,turma_id_externo,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,storage_driver,storage_file_id,storage_folder_id,atrasado,dias_atraso,enviado_em)VALUES(:evento,:bimestre,:usuario,:professor,:etapa,:serie,:turma,:original,:armazenado,:mime,:tamanho,:sha,:caminho,:driver,:file_id,:folder_id,:atrasado,:dias,:enviado)');$statement->execute($parameters);return(int)$this->db->lastInsertId();}
+        $statement=$this->db->prepare('UPDATE apc_envios SET bimestre_id=:bimestre,professor_nome_snapshot=:professor,nome_original=:original,nome_armazenado=:armazenado,mime_type=:mime,tamanho_bytes=:tamanho,sha256=:sha,caminho_relativo=:caminho,storage_driver=:driver,storage_file_id=:file_id,storage_folder_id=:folder_id,atrasado=:atrasado,dias_atraso=:dias,enviado_em=:enviado,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');$statement->execute(array_intersect_key($parameters,array_flip([':bimestre',':professor',':original',':armazenado',':mime',':tamanho',':sha',':caminho',':driver',':file_id',':folder_id',':atrasado',':dias',':enviado']))+[':id'=>$id]);return$id;
     }
 
     public function syncClasses(int$id,array$classes):void
@@ -43,6 +43,20 @@ final class SubmissionRepository
     public function forEvent(int$eventId,int$userId,string$role):array
     {
         $where=' WHERE s.evento_id=:evento';$parameters=[':evento'=>$eventId];if($role==='PROFESSOR'){$where.=' AND s.professor_usuario_id=:usuario';$parameters[':usuario']=$userId;}$statement=$this->db->prepare($this->select().$where.' ORDER BY s.professor_nome_snapshot,s.etapa,s.ano_serie');$statement->execute($parameters);return$statement->fetchAll();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function localForMigration(?int$id=null,int$limit=100):array
+    {
+        $where=" WHERE COALESCE(s.storage_driver,'local')='local'";$parameters=[];
+        if($id!==null){$where.=' AND s.id=:id';$parameters[':id']=$id;}
+        $statement=$this->db->prepare($this->select().$where.' ORDER BY s.id LIMIT '.max(1,$limit));$statement->execute($parameters);return$statement->fetchAll();
+    }
+
+    public function updateStorage(int$id,array$storage):void
+    {
+        $statement=$this->db->prepare('UPDATE apc_envios SET storage_driver=:driver,storage_file_id=:file_id,storage_folder_id=:folder_id,caminho_relativo=:caminho,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
+        $statement->execute([':driver'=>$storage['storage_driver'],':file_id'=>$storage['storage_file_id']??null,':folder_id'=>$storage['storage_folder_id']??null,':caminho'=>$storage['caminho_relativo']??null,':id'=>$id]);
     }
 
     private function select():string

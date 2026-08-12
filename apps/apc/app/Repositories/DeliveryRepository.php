@@ -16,7 +16,7 @@ final class DeliveryRepository
 
     public function find(int $id): ?array
     {
-        $statement=$this->db->prepare('SELECT e.*,p.professor_usuario_id,p.turma_id_externo,p.status plano_status,p.id plano_id FROM apc_entregas e JOIN apc_planos p ON p.id=e.plano_id WHERE e.id=:id AND p.arquivado_em IS NULL');
+        $statement=$this->db->prepare('SELECT e.*,p.professor_usuario_id,p.professor_nome_snapshot,p.turma_id_externo,p.turma_nome_snapshot,p.status plano_status,p.id plano_id,p.evento_id,ev.ano_letivo,ev.titulo evento_titulo FROM apc_entregas e JOIN apc_planos p ON p.id=e.plano_id JOIN apc_eventos ev ON ev.id=p.evento_id WHERE e.id=:id AND p.arquivado_em IS NULL');
         $statement->execute([':id'=>$id]);return$statement->fetch()?:null;
     }
 
@@ -44,17 +44,30 @@ final class DeliveryRepository
 
     public function attachment(int $id): ?array
     {
-        $statement=$this->db->prepare('SELECT a.*,e.plano_id,p.professor_usuario_id,p.turma_id_externo,p.status plano_status FROM apc_anexos a JOIN apc_entregas e ON e.id=a.entrega_id JOIN apc_planos p ON p.id=e.plano_id WHERE a.id=:id AND p.arquivado_em IS NULL');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;
+        $statement=$this->db->prepare('SELECT a.*,e.plano_id,e.aluno_nome_snapshot,p.professor_usuario_id,p.professor_nome_snapshot,p.turma_id_externo,p.turma_nome_snapshot,p.status plano_status,p.evento_id,ev.ano_letivo,ev.titulo evento_titulo FROM apc_anexos a JOIN apc_entregas e ON e.id=a.entrega_id JOIN apc_planos p ON p.id=e.plano_id JOIN apc_eventos ev ON ev.id=p.evento_id WHERE a.id=:id AND p.arquivado_em IS NULL');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;
     }
 
     public function addAttachment(array $data): int
     {
-        $statement=$this->db->prepare('INSERT INTO apc_anexos(entrega_id,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,enviado_por)VALUES(:entrega,:original,:armazenado,:mime,:tamanho,:sha,:caminho,:usuario)');
-        $statement->execute([':entrega'=>$data['entrega_id'],':original'=>$data['nome_original'],':armazenado'=>$data['nome_armazenado'],':mime'=>$data['mime_type'],':tamanho'=>$data['tamanho_bytes'],':sha'=>$data['sha256'],':caminho'=>$data['caminho_relativo'],':usuario'=>$data['enviado_por']]);return(int)$this->db->lastInsertId();
+        $statement=$this->db->prepare('INSERT INTO apc_anexos(entrega_id,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,storage_driver,storage_file_id,storage_folder_id,enviado_por)VALUES(:entrega,:original,:armazenado,:mime,:tamanho,:sha,:caminho,:driver,:file_id,:folder_id,:usuario)');
+        $statement->execute([':entrega'=>$data['entrega_id'],':original'=>$data['nome_original'],':armazenado'=>$data['nome_armazenado'],':mime'=>$data['mime_type'],':tamanho'=>$data['tamanho_bytes'],':sha'=>$data['sha256'],':caminho'=>$data['caminho_relativo']??null,':driver'=>$data['storage_driver']??'local',':file_id'=>$data['storage_file_id']??null,':folder_id'=>$data['storage_folder_id']??null,':usuario'=>$data['enviado_por']]);return(int)$this->db->lastInsertId();
     }
 
     public function deleteAttachment(int $id): void
     {
         $this->db->prepare('DELETE FROM apc_anexos WHERE id=:id')->execute([':id'=>$id]);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function localAttachmentsForMigration(?int$id=null,int$limit=100):array
+    {
+        $sql="SELECT a.*,e.plano_id,e.aluno_nome_snapshot,p.professor_usuario_id,p.professor_nome_snapshot,p.turma_id_externo,p.turma_nome_snapshot,p.evento_id,ev.ano_letivo,ev.titulo evento_titulo FROM apc_anexos a JOIN apc_entregas e ON e.id=a.entrega_id JOIN apc_planos p ON p.id=e.plano_id JOIN apc_eventos ev ON ev.id=p.evento_id WHERE COALESCE(a.storage_driver,'local')='local'";$parameters=[];
+        if($id!==null){$sql.=' AND a.id=:id';$parameters[':id']=$id;}$sql.=' ORDER BY a.id LIMIT '.max(1,$limit);$statement=$this->db->prepare($sql);$statement->execute($parameters);return$statement->fetchAll();
+    }
+
+    public function updateAttachmentStorage(int$id,array$storage):void
+    {
+        $statement=$this->db->prepare('UPDATE apc_anexos SET storage_driver=:driver,storage_file_id=:file_id,storage_folder_id=:folder_id,caminho_relativo=:caminho WHERE id=:id');
+        $statement->execute([':driver'=>$storage['storage_driver'],':file_id'=>$storage['storage_file_id']??null,':folder_id'=>$storage['storage_folder_id']??null,':caminho'=>$storage['caminho_relativo']??null,':id'=>$id]);
     }
 }

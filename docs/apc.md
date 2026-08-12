@@ -19,6 +19,8 @@ APC_DB_PATH         -> eventos, bimestres, envios e auditoria do APC
 APC_UPLOADS_PATH    -> arquivos privados, fora de public/
 ```
 
+O backend de arquivos pode ser `local` ou `google_drive`, por registro. A ativação segura, a Service Account, o Drive Compartilhado, a migration, o health check e o rollback estão detalhados em [google-drive-storage.md](google-drive-storage.md).
+
 As tabelas antigas de planos, currículo, entregas e anexos por aluno não são apagadas. Elas permanecem no banco para preservar o histórico, mas não aparecem na navegação principal do APC simplificado.
 
 ## Vínculos com o Conselho

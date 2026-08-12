@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+/credentials/
+/**/google-service-account*.json
+/**/service-account-credentials*.json
 
 # Dependências instaladas pelo Composer
 /vendor/
