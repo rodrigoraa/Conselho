@@ -66,6 +66,7 @@ if(apcViewTabs.length&&apcViewPanels.length){
 }
 
 const apcFileCards=[...document.querySelectorAll('[data-apc-file-card]')];
+const apcFileGroups=[...document.querySelectorAll('[data-apc-file-group]')];
 const apcFileSearch=document.querySelector('[data-apc-file-search]');
 const apcFileEvent=document.querySelector('[data-apc-file-event]');
 const apcFileStatus=document.querySelector('[data-apc-file-status]');
@@ -75,8 +76,10 @@ const filterApcFiles=()=>{
   const term=(apcFileSearch?.value||'').toLocaleLowerCase('pt-BR').trim();
   const eventId=apcFileEvent?.value||'';
   const status=apcFileStatus?.value||'';
+  const filtering=term!==''||eventId!==''||status!=='';
   let visible=0;
-  apcFileCards.forEach(card=>{const show=(!term||card.textContent.toLocaleLowerCase('pt-BR').includes(term))&&(!eventId||card.dataset.eventId===eventId)&&(!status||card.dataset.deliveryStatus===status);card.hidden=!show;if(show)visible++});
+  apcFileCards.forEach(card=>{const group=card.closest('[data-apc-file-group]');const searchable=`${group?.dataset.professorName||''} ${card.textContent}`.toLocaleLowerCase('pt-BR');const show=(!term||searchable.includes(term))&&(!eventId||card.dataset.eventId===eventId)&&(!status||card.dataset.deliveryStatus===status);card.hidden=!show;if(show)visible++});
+  apcFileGroups.forEach(group=>{const groupVisible=[...group.querySelectorAll('[data-apc-file-card]')].filter(card=>!card.hidden).length;group.hidden=groupVisible===0;const groupCount=group.querySelector('[data-apc-file-group-count]');if(groupCount)groupCount.textContent=`${groupVisible} ${groupVisible===1?'arquivo':'arquivos'}`;if(filtering&&groupVisible>0)group.open=true});
   if(apcFileCount)apcFileCount.textContent=String(visible);
   if(apcFileEmpty)apcFileEmpty.hidden=visible!==0;
 };

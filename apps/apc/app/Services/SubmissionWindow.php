@@ -12,12 +12,12 @@ final class SubmissionWindow
 
     public function describe(array$event):array
     {
-        $term=$this->terms->forEvent($event);$today=$this->date($this->fixedToday??date('Y-m-d'));$eventDate=$this->date((string)$event['data']);if($term===null)return['state'=>'SEM_BIMESTRE','is_open'=>false,'is_late'=>$today>$eventDate,'term'=>null,'opens_on'=>null,'closes_on'=>null];$released=trim((string)($event['disponibilizado_em']??''))!=='';$state=$released?'ABERTO':'AGUARDANDO_LIBERACAO';return['state'=>$state,'is_open'=>$released,'is_late'=>$today>$eventDate,'term'=>$term,'opens_on'=>$released?substr((string)$event['disponibilizado_em'],0,10):null,'closes_on'=>null];
+        $term=$this->terms->forEvent($event);$today=$this->date($this->fixedToday??date('Y-m-d'));$eventDate=$this->date((string)$event['data']);$isLate=$today>$eventDate;if((string)($event['status']??'')!=='ATIVO')return['state'=>'CANCELADO','is_open'=>false,'is_late'=>$isLate,'term'=>$term,'opens_on'=>null,'closes_on'=>null];if($term===null)return['state'=>'SEM_BIMESTRE','is_open'=>false,'is_late'=>$isLate,'term'=>null,'opens_on'=>null,'closes_on'=>null];return['state'=>'ABERTO','is_open'=>true,'is_late'=>$isLate,'term'=>$term,'opens_on'=>$term['data_inicio'],'closes_on'=>null];
     }
 
     public function assertOpen(array$event):array
     {
-        $window=$this->describe($event);if($window['state']==='SEM_BIMESTRE')throw new HttpException(422,'APC_TERM_NOT_CONFIGURED','Este evento não possui um bimestre configurado para envio.');if($window['state']==='AGUARDANDO_LIBERACAO')throw new HttpException(422,'APC_EVENT_NOT_RELEASED','Esta APC ainda não foi disponibilizada pela coordenação.');return$window;
+        $window=$this->describe($event);if($window['state']==='CANCELADO')throw new HttpException(422,'APC_EVENT_CANCELLED','Esta APC está cancelada.');if($window['state']==='SEM_BIMESTRE')throw new HttpException(422,'APC_TERM_NOT_CONFIGURED','Este evento não possui um bimestre configurado para envio.');return$window;
     }
 
     private function date(string$value):DateTimeImmutable

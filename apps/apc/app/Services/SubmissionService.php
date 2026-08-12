@@ -43,7 +43,7 @@ final class SubmissionService
         $submitted=[];foreach($submissions as$submission)foreach($this->submissionClassIds($submission)as$classId)$submitted[$classId][]=(int)$submission['evento_id'];
         $available=[];$future=[];
         foreach($this->events->active()as$event){
-            $window=$this->window->describe($event);if($window['state']==='SEM_BIMESTRE')continue;
+            $window=$this->window->describe($event);if(!$window['is_open'])continue;
             $requirements=[];$sentCount=0;
             foreach($series as$item)foreach($item['turmas']as$class){$classId=(int)$class['id'];$sent=in_array((int)$event['id'],$submitted[$classId]??[],true);if($sent)$sentCount++;$requirements[]=$item+['turma'=>$class,'turma_id_externo'=>$classId,'turma_nome'=>(string)$class['nome'],'sent'=>$sent];}
             $total=count($requirements);$status=$total===0?'SEM_VINCULO':($sentCount===$total?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'));

@@ -81,11 +81,6 @@ final class EventRepository
         $this->db->prepare("UPDATE apc_eventos SET status='CANCELADO',disponibilizado_em=NULL,disponibilizado_por=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$id]);
     }
 
-    public function setAvailability(int $id,?int $userId): void
-    {
-        $statement=$this->db->prepare('UPDATE apc_eventos SET disponibilizado_em=:momento,disponibilizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');$statement->execute([':momento'=>$userId===null?null:date('Y-m-d H:i:s'),':usuario'=>$userId,':id'=>$id]);
-    }
-
     private function parameters(array $data): array
     {
         return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':justificativa'=>$data['justificativa'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':sed'=>$data['atividade_fornecida_sed'],':status'=>$data['status']];
