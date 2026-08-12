@@ -90,7 +90,18 @@ Migrations do APC concluídas.
 
 `/apc/calendario` continua usando `apc_eventos` como fonte única. No desktop há calendário mensal; no celular, lista cronológica. `/apc/eventos/{id}` mostra a data da APC, o bimestre de envio e apenas os arquivos permitidos ao usuário atual.
 
-O calendário oficial de 2026 está em `apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv`. A importação é idempotente:
+Na área administrativa (`/apc/admin`), um calendário anual pode ser enviado em PDF. O fluxo:
+
+1. valida e lê temporariamente o PDF;
+2. identifica o ano letivo e as descrições marcadas como `com APC`;
+3. expande intervalos como `3 a 6` em datas individuais;
+4. compara a extração com o total anual declarado no calendário;
+5. mostra todas as datas, tipos, títulos e trechos de origem para revisão;
+6. importa somente depois da confirmação do administrador.
+
+O arquivo do calendário não é armazenado. A tela de revisão permite corrigir ou desmarcar datas antes da importação. PDFs compostos somente por imagens, protegidos ou com estrutura incompatível são recusados, sem criar eventos parcialmente.
+
+A importação é idempotente: reenviar o mesmo calendário atualiza os eventos correspondentes sem duplicá-los. O calendário oficial de 2026 continua disponível em `apps/apc/resources/calendario/eventos_ee_sao_jose_2026.csv` como opção de linha de comando:
 
 ```bash
 sudo -u www-data php scripts/console.php apc-importar-calendario
@@ -116,6 +127,7 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 
 - possui a mesma visão global da coordenação;
 - gerencia os eventos em `/apc/admin`;
+- envia o calendário anual em PDF e revisa as APCs extraídas antes da importação;
 - consulta a auditoria.
 
 ## Rotas principais
@@ -134,7 +146,9 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 
 ```text
 /apc/envios                    envio/substituição do arquivo (PROFESSOR)
-/apc/admin/calendario/importar importação do calendário (ADMIN)
+/apc/admin/calendario/analisar análise temporária do calendário PDF (ADMIN)
+/apc/admin/calendario/confirmar importação das datas revisadas (ADMIN)
+/apc/admin/calendario/importar importação do calendário CSV de 2026 (ADMIN, compatibilidade)
 /apc/admin/eventos             criação de evento (ADMIN)
 /apc/admin/eventos/{id}        alteração de evento (ADMIN)
 /apc/admin/eventos/{id}/cancelar cancelamento de evento (ADMIN)
@@ -161,9 +175,10 @@ Variáveis:
 APC_DB_PATH=/var/www/data/apc.db
 APC_UPLOADS_PATH=/var/www/data/apc-uploads
 APC_UPLOAD_MAX_BYTES=10485760
+APC_CALENDAR_MAX_BYTES=15728640
 ```
 
-O PHP-FPM precisa ter `fileinfo` habilitado. `upload_max_filesize` e `post_max_size` devem aceitar pelo menos o limite configurado mais a sobrecarga do formulário.
+O PHP-FPM precisa ter `fileinfo`, `iconv` e `zlib` habilitados. `upload_max_filesize` e `post_max_size` devem aceitar pelo menos o maior limite configurado mais a sobrecarga do formulário.
 
 ## Permissões Linux
 

@@ -18,7 +18,15 @@ final class CalendarImporter
 
     public function import(?int $userId=null,string $ip='console',string $userAgent='APC calendar importer'): array
     {
-        $rows=$this->readRows();
+        return$this->importRows($this->readRows(),$userId,$ip,$userAgent,basename($this->csvPath));
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    public function importRows(array$rows,?int$userId=null,string$ip='console',string$userAgent='APC calendar importer',string$source='calendario.pdf'):array
+    {
+        $validated=[];$keys=[];$natural=[];
+        foreach($rows as$index=>$row){if(!is_array($row))throw new RuntimeException('Evento inválido no calendário extraído.');foreach(self::FIELDS as$field)if(!array_key_exists($field,$row))throw new RuntimeException("Campo $field ausente no evento ".($index+1).'.');$row=$this->validate(array_map(static fn(mixed$value):string=>trim((string)$value),array_intersect_key($row,array_flip(self::FIELDS))),$index+1);if(isset($keys[$row['chave_importacao']]))throw new RuntimeException('Chave de importação repetida no evento '.($index+1).'.');$identity=$row['ano_letivo'].'|'.$row['data'].'|'.$row['tipo'];if(isset($natural[$identity]))throw new RuntimeException('Data e tipo repetidos no evento '.($index+1).'.');$keys[$row['chave_importacao']]=true;$natural[$identity]=true;$validated[]=$row;}
+        if($validated===[])throw new RuntimeException('O calendário não contém eventos selecionados.');$rows=$validated;
         $summary=['total'=>count($rows),'criados'=>0,'atualizados'=>0,'conciliados'=>0,'inalterados'=>0,'por_tipo'=>array_fill_keys(self::TYPES,0)];
         $db=$this->events->db;$db->beginTransaction();
         try{
@@ -30,7 +38,7 @@ final class CalendarImporter
                 if($this->matches($event,$row)){$summary['inalterados']++;continue;}
                 $this->events->updateImported((int)$event['id'],$row);$summary[$reconciled?'conciliados':'atualizados']++;
             }
-            $this->audit->record($userId,'CALENDARIO_ESCOLAR_IMPORTADO','apc_eventos',null,null,$summary+['arquivo'=>basename($this->csvPath)],$ip,$userAgent);
+            $this->audit->record($userId,'CALENDARIO_ESCOLAR_IMPORTADO','apc_eventos',null,null,$summary+['arquivo'=>mb_substr(basename(str_replace('\\','/',$source)),0,180)],$ip,$userAgent);
             $db->commit();return$summary;
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
