@@ -8,6 +8,12 @@ final class AccessRepository
 {
     public function __construct(private readonly PDO $db) {}
 
+    public function isActiveTeacher(int$userId):bool
+    {
+        $statement=$this->db->prepare('SELECT 1 FROM professores p JOIN usuarios u ON u.id=p.usuario_id WHERE p.usuario_id=:usuario AND p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL LIMIT 1');
+        $statement->execute([':usuario'=>$userId]);return(bool)$statement->fetchColumn();
+    }
+
     public function classesFor(int $userId,string $role): array
     {
         if($role==='PROFESSOR'){
@@ -39,7 +45,7 @@ final class AccessRepository
      */
     public function submissionRoster():array
     {
-        $statement=$this->db->query("SELECT u.id professor_usuario_id,u.nome professor_nome,v.turma_externa_id id,v.turma_nome_snapshot nome,v.turma_ano_letivo_snapshot ano_letivo FROM usuarios u JOIN professores p ON p.usuario_id=u.id AND p.ativo=1 LEFT JOIN vinculos_professor_turma v ON v.professor_id=p.id AND v.ativo=1 WHERE u.perfil='PROFESSOR' AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE,v.turma_nome_snapshot COLLATE NOCASE");
+        $statement=$this->db->query("SELECT u.id professor_usuario_id,u.nome professor_nome,v.turma_externa_id id,v.turma_nome_snapshot nome,v.turma_ano_letivo_snapshot ano_letivo FROM usuarios u JOIN professores p ON p.usuario_id=u.id AND p.ativo=1 LEFT JOIN vinculos_professor_turma v ON v.professor_id=p.id AND v.ativo=1 WHERE u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE,v.turma_nome_snapshot COLLATE NOCASE");
 
         $professors=[];$requirements=[];
         foreach($statement->fetchAll()as$row){

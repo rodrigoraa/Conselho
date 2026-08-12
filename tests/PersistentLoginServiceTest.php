@@ -22,4 +22,10 @@ final class PersistentLoginServiceTest extends ApcTestCase
         $db=$this->mainDatabase();$this->seedMain($db);$now=1_800_000_000;$cookies=[];$writer=static function(string$name,string$value,array$options)use(&$cookies):bool{$cookies[]=$value;return true;};$service=new PersistentLoginService($db,15,false,'Lax',$writer,static fn():int=>$now);
         self::assertNull($service->remember(['id'=>1,'nome'=>'Admin','perfil'=>'ADMIN']));self::assertSame([],$cookies);$service->remember(['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR']);$cookie=$cookies[0];self::assertSame(1,(int)$db->query('SELECT COUNT(*) FROM sessoes_persistentes_professor')->fetchColumn());$service->forget($cookie);self::assertSame(0,(int)$db->query('SELECT COUNT(*) FROM sessoes_persistentes_professor')->fetchColumn());self::assertSame('',$cookies[1]);
     }
+
+    public function testCoordinatorWhoAlsoTeachesKeepsTheFifteenDayLoginWithCoordinationRole():void
+    {
+        $db=$this->mainDatabase();$this->seedMain($db);$db->exec('INSERT INTO professores(id,usuario_id)VALUES(3,2)');$now=1_800_000_000;$cookies=[];$writer=static function(string$name,string$value,array$options)use(&$cookies):bool{$cookies[]=$value;return true;};$service=new PersistentLoginService($db,15,false,'Lax',$writer,static fn():int=>$now);
+        $expires=$service->remember(['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR']);self::assertSame($now+15*86400,$expires);$restored=$service->restore($cookies[0]);self::assertSame(2,$restored['id']);self::assertSame('COORDENADOR',$restored['perfil']);self::assertSame($expires,$restored['persistent_expires_at']);
+    }
 }

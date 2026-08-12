@@ -173,7 +173,7 @@ body.login-page{--login-navy:#12314a;--login-blue:#0f6cbd;--login-card:rgba(255,
 .apc-submission-card .submission-file strong{max-width:100%;overflow-wrap:anywhere}
 .submission-file-actions{display:flex;flex-wrap:wrap;gap:.45rem}
 .submission-file-actions form{margin:0}
-.apc-view-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:0 0 1rem;padding:.5rem;border:1px solid var(--border);border-radius:.8rem;background:#fff;box-shadow:0 3px 12px rgba(21,52,72,.05)}
+.apc-view-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.65rem;margin:0 0 1rem;padding:.5rem;border:1px solid var(--border);border-radius:.8rem;background:#fff;box-shadow:0 3px 12px rgba(21,52,72,.05)}
 .apc-view-tabs button,.apc-view-tabs a{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:.7rem;min-height:4.25rem;padding:.7rem .8rem;border:1px solid transparent;border-radius:.6rem;background:transparent;color:var(--navy);text-align:left;text-decoration:none;box-shadow:none}
 .apc-view-tabs button:hover,.apc-view-tabs a:hover{border-color:#c9d9e2;background:#f5f8fa}.apc-view-tabs button.active{border-color:#8fc4a8;background:#edf8f2;color:var(--green-dark)}
 .apc-view-tabs button>span:first-child,.apc-view-tabs a>span:first-child{display:grid;place-items:center;width:2.15rem;height:2.15rem;border-radius:.5rem;background:#e8f0f4;color:var(--blue);font-weight:900}.apc-view-tabs button.active>span:first-child{background:var(--green);color:#fff}

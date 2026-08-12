@@ -89,12 +89,13 @@ final class SubmissionService
 
     public function submit(array$input,array$file,array$user,string$ip,string$userAgent):int
     {
-        if(($user['perfil']??'')!=='PROFESSOR')throw new HttpException(403,'APC_FORBIDDEN','Somente professores podem enviar arquivos de APC.');
+        $userId=(int)($user['id']??0);$role=(string)($user['perfil']??'');
+        if($role!=='PROFESSOR'&&!$this->access->isActiveTeacher($userId))throw new HttpException(403,'APC_FORBIDDEN','Somente usuários com cadastro docente ativo podem enviar arquivos de APC.');
         $eventId=filter_var($input['evento_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$event=$eventId?$this->events->find((int)$eventId):null;
         if(!$event||$event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_NOT_FOUND','Selecione um evento APC válido.');
         $window=$this->window->assertOpen($event);$stage=trim((string)($input['etapa']??''));$year=trim((string)($input['ano_serie']??''));
         if(!in_array($stage,self::STAGES,true)||!in_array($year,self::YEARS,true)||$this->stageForYear($year)!==$stage)throw new HttpException(422,'APC_INVALID_SERIES','Selecione uma etapa e uma série válidas.');
-        $classId=filter_var($input['turma_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$classes=$this->access->classesForSeries((int)$user['id'],'PROFESSOR',$stage,$year);$selectedClass=null;
+        $classId=filter_var($input['turma_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$classes=$this->access->classesForSeries($userId,'PROFESSOR',$stage,$year);$selectedClass=null;
         foreach($classes as$class)if((int)$class['id']===(int)$classId){$selectedClass=$class;break;}
         if($selectedClass===null)throw new HttpException(403,'APC_CLASS_FORBIDDEN','A turma selecionada não pertence a este professor, etapa e série.');
         if($this->submissions->existingForClass((int)$eventId,(int)$user['id'],(int)$classId))throw$this->alreadySubmitted();

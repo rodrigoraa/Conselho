@@ -17,13 +17,14 @@ final class SubmissionController
 
     public function index(Request$request):Response
     {
-        $user=$_SESSION['user'];$isTeacher=$user['perfil']==='PROFESSOR';$submissions=$this->submissions->list((int)$user['id'],(string)$user['perfil']);$series=[];$events=[];$submittedClasses=[];$hadAvailableEvents=false;$teacherDashboard=['available'=>[],'future'=>[]];$tracking=['events'=>[],'without_series'=>[]];
-        if($isTeacher){
+        $user=$_SESSION['user'];$userId=(int)$user['id'];$role=(string)$user['perfil'];$isTeacher=$role==='PROFESSOR';$isManagement=in_array($role,['COORDENADOR','ADMIN'],true);$canSubmit=$isTeacher||$this->access->isActiveTeacher($userId);$teacherSubmissions=$canSubmit?$this->submissions->list($userId,'PROFESSOR'):[];$submissions=$isManagement?$this->submissions->list($userId,$role):$teacherSubmissions;$series=[];$events=[];$submittedClasses=[];$hadAvailableEvents=false;$teacherDashboard=['available'=>[],'future'=>[]];$tracking=['events'=>[],'without_series'=>[]];
+        if($canSubmit){
             $series=$this->access->seriesFor((int)$user['id'],'PROFESSOR');
-            $teacherDashboard=$this->service->teacherDashboard($series,$submissions);$submittedClasses=$teacherDashboard['submitted_classes'];$hadAvailableEvents=(bool)$teacherDashboard['available'];
+            $teacherDashboard=$this->service->teacherDashboard($series,$teacherSubmissions);$submittedClasses=$teacherDashboard['submitted_classes'];$hadAvailableEvents=(bool)$teacherDashboard['available'];
             $events=array_values(array_filter($teacherDashboard['available'],static fn(array$event):bool=>$event['status']!=='COMPLETO'));
-        }else{$tracking=$this->service->tracking();}
-        $term=$this->service->currentTerm();return new Response($this->view->render('submissions',compact('series','events','submittedClasses','hadAvailableEvents','teacherDashboard','tracking','term','submissions','isTeacher')+['title'=>'Envio de APCs']));
+        }
+        if($isManagement)$tracking=$this->service->tracking();
+        $term=$this->service->currentTerm();return new Response($this->view->render('submissions',compact('series','events','submittedClasses','hadAvailableEvents','teacherDashboard','tracking','term','submissions','teacherSubmissions','isTeacher','isManagement','canSubmit')+['title'=>'Envio de APCs']));
     }
 
     public function upload(Request$request):Response

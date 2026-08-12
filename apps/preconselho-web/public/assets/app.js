@@ -58,16 +58,18 @@ document.querySelectorAll('[data-apc-upload-form]').forEach(form=>form.addEventL
 const apcViewTabs=[...document.querySelectorAll('[data-apc-view-tab]')];
 const apcViewPanels=[...document.querySelectorAll('[data-apc-view-panel]')];
 if(apcViewTabs.length&&apcViewPanels.length){
+  const apcViewFromHash=()=>location.hash==='#minhas-apcs'?'mine':(location.hash==='#arquivos'?'files':(location.hash==='#acompanhamento'?'tracking':''));
+  const defaultApcView=apcViewTabs.find(tab=>tab.classList.contains('active'))?.dataset.apcViewTab||'tracking';
   const activateApcView=(view,updateHash=false)=>{
     const selected=apcViewPanels.some(panel=>panel.dataset.apcViewPanel===view)?view:'tracking';
     apcViewTabs.forEach(tab=>{const active=tab.dataset.apcViewTab===selected;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1});
     apcViewPanels.forEach(panel=>{panel.hidden=panel.dataset.apcViewPanel!==selected});
-    if(updateHash)history.replaceState(null,'',selected==='files'?'#arquivos':'#acompanhamento');
+    if(updateHash)history.replaceState(null,'',selected==='mine'?'#minhas-apcs':(selected==='files'?'#arquivos':'#acompanhamento'));
   };
   apcViewTabs.forEach(tab=>tab.addEventListener('click',()=>activateApcView(tab.dataset.apcViewTab||'tracking',true)));
   apcViewTabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();const direction=event.key==='ArrowRight'?1:-1;const target=apcViewTabs[(index+direction+apcViewTabs.length)%apcViewTabs.length];activateApcView(target.dataset.apcViewTab||'tracking',true);target.focus()}));
-  activateApcView(location.hash==='#arquivos'?'files':'tracking');
-  window.addEventListener('hashchange',()=>activateApcView(location.hash==='#arquivos'?'files':'tracking'));
+  activateApcView(apcViewFromHash()||defaultApcView);
+  window.addEventListener('hashchange',()=>activateApcView(apcViewFromHash()||defaultApcView));
 }
 
 const apcFileCards=[...document.querySelectorAll('[data-apc-file-card]')];

@@ -65,7 +65,7 @@ final class ManagementController
         if($id===(int)$_SESSION['user']['id']&&$role!=='ADMIN')throw new HttpException(422,'SELF_ROLE_CHANGE','Você não pode remover o próprio acesso administrativo.');
         $this->repository->db->beginTransaction();
         try{
-            if($before['perfil']==='PROFESSOR'&&$role!=='PROFESSOR'){
+            if(!in_array($role,['PROFESSOR','COORDENADOR'],true)&&$this->repository->professorByUser($id)!==null){
                 $check=$this->repository->db->prepare('SELECT COUNT(*) FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id WHERE p.usuario_id=:id');$check->execute([':id'=>$id]);
                 if((int)$check->fetchColumn()>0)throw new HttpException(422,'PROFESSOR_IN_USE','O perfil não pode ser alterado porque este professor possui vínculos.');
                 $this->repository->db->prepare('UPDATE professores SET ativo=0,atualizado_em=CURRENT_TIMESTAMP WHERE usuario_id=:id')->execute([':id'=>$id]);

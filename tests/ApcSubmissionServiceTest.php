@@ -33,6 +33,15 @@ final class ApcSubmissionServiceTest extends ApcTestCase
         [$db,$repository,$service]=$this->service('2026-08-11');try{$service->submit($this->input('EF_AF','EF8'),$this->file('sem-vinculo.png'),['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');self::fail('Turma fora da série vinculada deveria ser recusada.');}catch(HttpException$exception){self::assertSame('APC_CLASS_FORBIDDEN',$exception->errorCode);}$id=$service->submit($this->input(),$this->file('permitido.png'),['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');try{$service->file($id,['id'=>4,'perfil'=>'PROFESSOR']);self::fail('Outro professor não deveria baixar o arquivo.');}catch(HttpException$exception){self::assertSame(403,$exception->status);}self::assertSame($id,(int)$service->file($id,['id'=>2,'perfil'=>'COORDENADOR'])['id']);
     }
 
+    public function testCoordinatorWithActiveTeachingBindingCanSubmitOwnApc():void
+    {
+        [$db,$repository,$service,$main]=$this->service('2026-08-11');$coordinator=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
+        try{$service->submit($this->input(),$this->file('sem-cadastro-docente.png'),$coordinator,'127.0.0.1','phpunit');self::fail('Coordenação sem cadastro docente não deveria enviar APC.');}catch(HttpException$exception){self::assertSame(403,$exception->status);self::assertSame('APC_FORBIDDEN',$exception->errorCode);}
+        $main->exec("INSERT INTO professores(id,usuario_id)VALUES(3,2);INSERT INTO vinculos_professor_turma(id,professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(3,3,30,'9º A',2026,'MATUTINO')");
+        $id=$service->submit($this->input('EF_AF','EF9',30),$this->file('coordenacao-professora.png'),$coordinator,'127.0.0.1','phpunit');$submission=$repository->find($id);self::assertSame(2,(int)$submission['professor_usuario_id']);self::assertSame('9º A',$submission['turmas']);
+        try{$service->submit($this->input(),$this->file('turma-de-outro-professor.png'),$coordinator,'127.0.0.1','phpunit');self::fail('O vínculo docente da coordenação não deve liberar turmas de outros professores.');}catch(HttpException$exception){self::assertSame(403,$exception->status);self::assertSame('APC_CLASS_FORBIDDEN',$exception->errorCode);}
+    }
+
     private function service(string$today):array
     {
         $main=$this->mainDatabase();$this->seedMain($main);$db=$this->apcDatabase();$this->seedEvent($db);$repository=new SubmissionRepository($db);return[$db,$repository,new SubmissionService($repository,new EventRepository($db),new TermRepository($db),new AccessRepository($main),new AuditRepository($db),$this->directory,1048576,static fn(string$path):bool=>is_file($path),static fn(string$from,string$to):bool=>rename($from,$to),$today),$main];

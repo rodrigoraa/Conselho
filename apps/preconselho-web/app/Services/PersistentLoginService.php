@@ -26,7 +26,7 @@ final class PersistentLoginService
 
     public function remember(array $user): ?int
     {
-        if((string)($user['perfil']??'')!=='PROFESSOR')return null;
+        if((string)($user['perfil']??'')!=='PROFESSOR'&&!$this->isActiveTeacher((int)($user['id']??0)))return null;
         $now=$this->now();$expires=$now+max(1,$this->lifetimeDays)*86400;$selector=bin2hex(random_bytes(9));$validator=bin2hex(random_bytes(32));
         $this->deleteExpired($now);
         $statement=$this->db->prepare('INSERT INTO sessoes_persistentes_professor(usuario_id,seletor,token_hash,expira_em)VALUES(:usuario,:seletor,:hash,:expira)');
@@ -39,9 +39,9 @@ final class PersistentLoginService
     {
         $parts=$this->parts($cookie);if($parts===null)return null;[$selector,$validator]=$parts;$now=$this->now();$this->deleteExpired($now);
         $statement=$this->db->prepare("SELECT s.token_hash,s.expira_em,u.id,u.nome,u.perfil,u.alterar_senha,u.ativo,u.excluido_em FROM sessoes_persistentes_professor s JOIN usuarios u ON u.id=s.usuario_id WHERE s.seletor=:seletor LIMIT 1");$statement->execute([':seletor'=>$selector]);$row=$statement->fetch();
-        if(!$row||(int)$row['expira_em']<=$now||(int)$row['ativo']!==1||$row['excluido_em']!==null||$row['perfil']!=='PROFESSOR'||!hash_equals((string)$row['token_hash'],hash('sha256',$validator))){$this->deleteSelector($selector);$this->clearCookie();return null;}
+        if(!$row||(int)$row['expira_em']<=$now||(int)$row['ativo']!==1||$row['excluido_em']!==null||((string)$row['perfil']!=='PROFESSOR'&&!$this->isActiveTeacher((int)$row['id']))||!hash_equals((string)$row['token_hash'],hash('sha256',$validator))){$this->deleteSelector($selector);$this->clearCookie();return null;}
         $this->db->prepare('UPDATE sessoes_persistentes_professor SET ultimo_uso_em=CURRENT_TIMESTAMP WHERE seletor=:seletor')->execute([':seletor'=>$selector]);
-        return['id'=>(int)$row['id'],'nome'=>(string)$row['nome'],'perfil'=>'PROFESSOR','alterar_senha'=>(bool)$row['alterar_senha'],'persistent_expires_at'=>(int)$row['expira_em']];
+        return['id'=>(int)$row['id'],'nome'=>(string)$row['nome'],'perfil'=>(string)$row['perfil'],'alterar_senha'=>(bool)$row['alterar_senha'],'persistent_expires_at'=>(int)$row['expira_em']];
     }
 
     public function forget(?string $cookie): void
@@ -72,6 +72,11 @@ final class PersistentLoginService
     private function clearCookie(): void
     {
         $this->writeCookie('',$this->now()-42000);
+    }
+
+    private function isActiveTeacher(int$userId):bool
+    {
+        if($userId<=0)return false;$statement=$this->db->prepare('SELECT 1 FROM professores p JOIN usuarios u ON u.id=p.usuario_id WHERE p.usuario_id=:usuario AND p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL LIMIT 1');$statement->execute([':usuario'=>$userId]);return(bool)$statement->fetchColumn();
     }
 
     private function now(): int{return(int)($this->clock)();}
