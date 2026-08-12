@@ -33,6 +33,15 @@ final class EventService
         catch(\Throwable $exception){if($this->events->db->inTransaction())$this->events->db->rollBack();throw$exception;}
     }
 
+    public function reactivate(int $id,int $userId,string $ip,string $userAgent): void
+    {
+        $before=$this->events->find($id)??throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
+        if($before['status']==='ATIVO')return;
+        $this->events->db->beginTransaction();
+        try{$this->events->reactivate($id);$this->audit->record($userId,'REATIVAR','apc_eventos',$id,['status'=>$before['status']],['status'=>'ATIVO'],$ip,$userAgent);$this->events->db->commit();}
+        catch(\Throwable $exception){if($this->events->db->inTransaction())$this->events->db->rollBack();throw$exception;}
+    }
+
     private function validate(array $input): array
     {
         $year=Input::positiveInt($input['ano_letivo']??null,'Ano letivo inválido.');

@@ -7,6 +7,7 @@ use PreConselho\Controllers\{PortalController,WebController};
 use PreConselho\Integration\SecretariaApiClient;
 use PreConselho\Middlewares\AuthMiddleware;
 use PreConselho\Repositories\AppRepository;
+use PreConselho\Services\PersistentLoginService;
 use PreConselho\Support\Csrf;
 use Shared\Http\{Request,Response,Router};
 use Shared\Support\View;
@@ -34,6 +35,6 @@ final class PortalRoutingTest extends ApcTestCase
 
     public function testCpfLoginStillRedirectsToPortalRoot(): void
     {
-        if(session_status()!==PHP_SESSION_ACTIVE)session_start();$db=$this->mainDatabase();$this->seedMain($db);$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$_SESSION['_csrf']='token';$request=new Request('POST','/login',[],['_csrf'=>'token','cpf'=>'123.456.789-09'],['REMOTE_ADDR'=>'127.0.0.1','HTTP_USER_AGENT'=>'phpunit']);$response=(new WebController(new AppRepository($db),$view,new SecretariaApiClient()))->login($request);self::assertSame(302,$response->status);self::assertSame('/',$response->headers['Location']);self::assertSame(3,$_SESSION['user']['id']);
+        if(session_status()!==PHP_SESSION_ACTIVE)session_start();$db=$this->mainDatabase();$this->seedMain($db);$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$cookie=null;$persistent=new PersistentLoginService($db,15,false,'Lax',static function(string$name,string$value,array$options)use(&$cookie):bool{$cookie=['name'=>$name,'value'=>$value,'options'=>$options];return true;});$_SESSION['_csrf']='token';$request=new Request('POST','/login',[],['_csrf'=>'token','cpf'=>'123.456.789-09'],['REMOTE_ADDR'=>'127.0.0.1','HTTP_USER_AGENT'=>'phpunit']);$response=(new WebController(new AppRepository($db),$view,new SecretariaApiClient(),$persistent))->login($request);self::assertSame(302,$response->status);self::assertSame('/',$response->headers['Location']);self::assertSame(3,$_SESSION['user']['id']);self::assertGreaterThan(time()+14*86400,$_SESSION['user']['persistent_expires_at']);self::assertSame(PersistentLoginService::COOKIE_NAME,$cookie['name']);
     }
 }

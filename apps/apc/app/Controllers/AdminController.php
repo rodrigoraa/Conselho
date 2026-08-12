@@ -32,6 +32,11 @@ final class AdminController
         Csrf::verify($request->body['_csrf']??null);$this->eventService->cancel((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC cancelado sem excluir o histórico.';return Response::redirect('/apc/admin#calendario');
     }
 
+    public function reactivateEvent(Request $request,array $params): Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$this->eventService->reactivate((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC reativado e disponível novamente aos professores.';return Response::redirect('/apc/admin#calendario');
+    }
+
     public function importSchoolCalendar(Request $request): Response
     {
         Csrf::verify($request->body['_csrf']??null);$summary=$this->calendarImporter->import((int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']="Calendário oficial importado: {$summary['total']} eventos; {$summary['criados']} criados, {$summary['atualizados']} atualizados, {$summary['conciliados']} conciliados e {$summary['inalterados']} inalterados.";return Response::redirect('/apc/admin#calendario');
