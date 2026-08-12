@@ -46,9 +46,8 @@ final class AccessRepository
             $userId=(int)$row['professor_usuario_id'];if(!isset($professors[$userId]))$professors[$userId]=['professor_usuario_id'=>$userId,'professor_nome'=>(string)$row['professor_nome'],'recognized'=>false];
             if($row['id']===null)continue;
             $series=$this->seriesFromName((string)$row['nome']);if($series===null)continue;
-            $professors[$userId]['recognized']=true;$key=$userId.'|'.$series['etapa'].'|'.$series['ano_serie'];
-            if(!isset($requirements[$key]))$requirements[$key]=['professor_usuario_id'=>$userId,'professor_nome'=>(string)$row['professor_nome']]+$series+['turmas'=>[]];
-            $classId=(int)$row['id'];if(!isset($requirements[$key]['turmas'][$classId]))$requirements[$key]['turmas'][$classId]=['id'=>$classId,'nome'=>(string)$row['nome'],'ano_letivo'=>(int)$row['ano_letivo']];
+            $professors[$userId]['recognized']=true;$classId=(int)$row['id'];$key=$userId.'|'.$classId;
+            if(!isset($requirements[$key])){$class=['id'=>$classId,'nome'=>(string)$row['nome'],'ano_letivo'=>(int)$row['ano_letivo']];$requirements[$key]=['professor_usuario_id'=>$userId,'professor_nome'=>(string)$row['professor_nome'],'turma_id_externo'=>$classId,'turma_nome'=>(string)$row['nome']]+$series+['turmas'=>[$classId=>$class]];}
         }
 
         foreach($requirements as&$requirement)$requirement['turmas']=array_values($requirement['turmas']);unset($requirement);

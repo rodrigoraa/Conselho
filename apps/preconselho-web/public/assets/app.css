@@ -160,7 +160,7 @@ body.login-page{--login-navy:#12314a;--login-blue:#0f6cbd;--login-card:rgba(255,
 
 /* Envio simplificado de APC */
 .apc-simple-upload{border-top:4px solid var(--green)}
-.apc-submission-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;align-items:start}
+.apc-submission-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;align-items:start}
 .apc-submission-fields label{margin:0}
 .apc-submission-fields .submission-file-field{grid-column:1/-1;padding:1rem;border:1px dashed #8eb7a2;border-radius:.7rem;background:#f5fbf7}
 .apc-submission-fields .submission-file-field input{margin-top:.5rem;background:#fff}
