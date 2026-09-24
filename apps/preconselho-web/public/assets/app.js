@@ -56,7 +56,7 @@ if(apcSubmission){
     else{clearPreviewUrl();if(previewUnavailable)previewUnavailable.hidden=false}
     if(review)review.hidden=false;if(confirmSubmit)confirmSubmit.disabled=false;review?.scrollIntoView({behavior:'smooth',block:'nearest'});
   };
-  const pendingForEvent=option=>{const eventId=eventField?.value||'';const submitted=(option.dataset.submittedEvents||'').split(',').filter(Boolean);return!!eventId&&!submitted.includes(eventId)};
+  const pendingForEvent=option=>{const eventId=eventField?.value||'';const submitted=(option.dataset.submittedEvents||'').split(',').filter(Boolean);const eligible=(option.dataset.eligibleEvents||'').split(',').filter(Boolean);return!!eventId&&eligible.includes(eventId)&&!submitted.includes(eventId)};
   const pendingClassesFor=(stageValue,yearValue='')=>[...(classField?.querySelectorAll('option[data-stage]')||[])].filter(option=>option.dataset.stage===stageValue&&(!yearValue||option.dataset.year===yearValue)&&pendingForEvent(option));
   const refreshClasses=()=>{
     const eventId=eventField?.value||'';

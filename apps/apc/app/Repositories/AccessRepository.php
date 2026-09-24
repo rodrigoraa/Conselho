@@ -14,6 +14,27 @@ final class AccessRepository
         $statement->execute([':usuario'=>$userId]);return(bool)$statement->fetchColumn();
     }
 
+    public function hasActiveClassBinding(int$userId,int$classId,int$year,string$shift):bool
+    {
+        $statement=$this->db->prepare("SELECT 1 FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id WHERE p.usuario_id=:usuario AND v.turma_externa_id=:turma AND v.turma_ano_letivo_snapshot=:ano AND v.turno=:turno AND v.ativo=1 AND p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL LIMIT 1");
+        $statement->execute([':usuario'=>$userId,':turma'=>$classId,':ano'=>$year,':turno'=>$shift]);return(bool)$statement->fetchColumn();
+    }
+
+    public function activeShiftsForYear(int$year):array
+    {
+        $statement=$this->db->prepare("SELECT DISTINCT v.turno FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id WHERE v.turma_ano_letivo_snapshot=:ano AND v.ativo=1 AND p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY v.turno");$statement->execute([':ano'=>$year]);return array_column($statement->fetchAll(),'turno');
+    }
+
+    public function teacherCandidates():array
+    {
+        return$this->db->query("SELECT u.id,u.nome FROM usuarios u JOIN professores p ON p.usuario_id=u.id WHERE p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL ORDER BY u.nome COLLATE NOCASE")->fetchAll();
+    }
+
+    public function classCandidates(int$year,string$shift):array
+    {
+        $statement=$this->db->prepare("SELECT v.turma_externa_id id,MAX(v.turma_nome_snapshot) nome FROM vinculos_professor_turma v JOIN professores p ON p.id=v.professor_id JOIN usuarios u ON u.id=p.usuario_id WHERE v.turma_ano_letivo_snapshot=:ano AND v.turno=:turno AND v.ativo=1 AND p.ativo=1 AND u.ativo=1 AND u.excluido_em IS NULL GROUP BY v.turma_externa_id ORDER BY nome COLLATE NOCASE");$statement->execute([':ano'=>$year,':turno'=>$shift]);return$statement->fetchAll();
+    }
+
     public function classesFor(int $userId,string $role): array
     {
         if($role==='PROFESSOR'){

@@ -23,6 +23,39 @@ O backend de arquivos pode ser `local` ou `google_drive`, por registro. A ativa�
 
 As tabelas antigas de planos, currículo, entregas e anexos por aluno não são apagadas. Elas permanecem no banco para preservar o histórico, mas não aparecem na navegação principal do APC simplificado.
 
+## Grade semanal e obrigações por evento
+
+A obrigação não é mais derivada de todas as turmas vinculadas. Para cada evento, o sistema usa exclusivamente `apc_eventos.data`, converte a data em dia ISO (`1 = segunda` até `5 = sexta`) e consulta a versão da grade vigente no ano e na data do evento. A data do upload nunca participa desse cálculo.
+
+As grades são administradas em `/apc/admin/horarios`, somente por ADMIN. Matutino e vespertino usam o mesmo importador e são versionados separadamente por ano letivo, turno, `vigente_de` e `vigente_ate` opcional. Vigências ativas do mesmo ano e turno não podem se sobrepor.
+
+O XLSX deve usar uma tabela com os cabeçalhos `TURMA`, `AULA` e um ou mais dias (`SEGUNDA` a `SEXTA`). A turma pode ser repetida ou informada uma vez e deixada em branco nas linhas seguintes. Cada célula usa:
+
+```text
+DISCIPLINA(PROFESSOR)
+```
+
+O fluxo é análise temporária, conferência e confirmação. Extensão, MIME, tamanho, estrutura OpenXML, células, dias, número da aula, duplicidades e o formato disciplina/professor são validados. XLS/XLSM e macros não são aceitos. O arquivo temporário fica fora de `public/` e é removido após a análise.
+
+Nomes são normalizados para comparação sem acentos e diferenças de caixa. Apenas uma correspondência normalizada exata e única é automática. Diferenças aproximadas aparecem como sugestões; professor ou turma não encontrado/ambíguo exige seleção administrativa. Usuários não são criados automaticamente. A confirmação valida novamente o vínculo ativo no ano e turno.
+
+## Snapshots e preservação histórica
+
+A migration `008_grade_horarios.sql` cria:
+
+- `apc_horario_importacoes`: versão, hash, turno, vigência e estado;
+- `apc_horarios`: aulas e associações confirmadas;
+- `apc_evento_obrigacao_estados`: evento configurado ou legado;
+- `apc_evento_obrigacoes`: snapshot único por evento, professor e turma.
+
+O snapshot é materializado na criação/importação do evento quando já existe grade completa, na confirmação de uma grade que cobre eventos existentes ou, como proteção, no primeiro cálculo seguro. Duas aulas do mesmo professor na mesma turma e dia geram uma obrigação. Ao confirmar uma nova versão, eventos cobertos só são recalculados quando ainda não possuem envio; a ação fica registrada como `RECALCULAR_OBRIGACOES_APC`. Eventos com envio nunca são recalculados. A data ou o ano do evento ficam bloqueados depois que as obrigações são registradas.
+
+Eventos anteriores que já possuem `apc_envios` são preservados como legado: arquivos continuam visíveis e baixáveis, sem inferência retroativa. A migration não altera nem apaga `apc_envios` ou `apc_envio_turmas`.
+
+Se faltar versão vigente para algum turno ativo, o estado é **grade não configurada**: o backend bloqueia envio e a coordenação não calcula pendências. Se a grade estiver completa e o professor realmente não tiver aula, o painel informa que nenhum envio é necessário.
+
+Para atualizar ou reverter uma grade, desative a versão incorreta em `/apc/admin/horarios` e importe outra com vigência não sobreposta. Não apague tabelas nem snapshots; correções históricas exigem operação administrativa explícita e auditada.
+
 ## Vínculos com o Conselho
 
 As opções de etapa e série não são livres. O APC consulta `vinculos_professor_turma` no banco do Conselho e deriva as opções a partir das turmas ativas do professor.
@@ -34,7 +67,7 @@ Exemplos:
 1ª A - Ensino Médio        -> Ensino Médio / 1ª série
 ```
 
-Ao salvar, o sistema registra como snapshot todas as turmas vinculadas que correspondem à etapa e série escolhidas. A validação também ocorre no servidor; alterar o HTML não permite enviar para uma série sem vínculo.
+Ao salvar, o backend exige simultaneamente professor ativo, vínculo ativo, obrigação snapshotada para o evento/turma, ano letivo e dia oficial corretos. Alterar `evento_id`, `turma_id`, etapa ou série no HTML/POST não libera outra turma.
 
 ## Bimestres e atraso
 
@@ -64,13 +97,13 @@ As migrations APC são incrementais e independentes do Conselho. A `005_envio_si
 - `apc_envio_turmas`: snapshots das turmas provenientes dos vínculos do Conselho;
 - índices para evento, professor e consulta dos vínculos do envio.
 
-A restrição única em `apc_envios` é:
+A restrição única vigente em `apc_envios` é:
 
 ```text
-evento + professor + etapa + série
+evento + professor + turma
 ```
 
-Um novo envio para a mesma combinação substitui o arquivo anterior de forma transacional e registra `SUBSTITUIR_ARQUIVO_APC` na auditoria. O primeiro envio registra `ANEXAR_ARQUIVO_APC`.
+Uma segunda tentativa para a mesma combinação é recusada. O envio registra `ANEXAR_ARQUIVO_APC`; exclusões administrativas continuam auditadas e não apagam a obrigação snapshotada.
 
 Para aplicar:
 
@@ -83,6 +116,7 @@ O comando esperado inclui:
 
 ```text
 Aplicada: 005_envio_simplificado.sql
+Aplicada: 008_grade_horarios.sql
 Migrations do APC concluídas.
 ```
 
@@ -112,8 +146,8 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 ### Professor
 
 - visualiza apenas seus envios;
-- recebe somente etapas e séries das próprias turmas vinculadas;
-- envia ou substitui um arquivo durante o bimestre;
+- recebe somente as turmas obrigatórias na data oficial do evento;
+- envia um arquivo por evento e turma durante o bimestre;
 - baixa apenas os próprios arquivos.
 
 ### Coordenação
@@ -140,15 +174,20 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 /apc/eventos/{id}              detalhe do evento
 /apc/envios/{id}/arquivo       download privado e autorizado
 /apc/admin                     eventos e auditoria (ADMIN)
+/apc/admin/horarios            versões da grade semanal (ADMIN)
+/apc/admin/horarios/revisar    conferência temporária do XLSX (ADMIN)
 ```
 
 ### POST
 
 ```text
-/apc/envios                    envio/substituição do arquivo (PROFESSOR)
+/apc/envios                    envio único por evento/professor/turma (PROFESSOR)
 /apc/admin/calendario/analisar análise temporária do calendário PDF (ADMIN)
 /apc/admin/calendario/confirmar importação das datas revisadas (ADMIN)
 /apc/admin/calendario/importar importação do calendário CSV de 2026 (ADMIN, compatibilidade)
+/apc/admin/horarios/analisar   análise temporária do XLSX (ADMIN)
+/apc/admin/horarios/confirmar  confirmação transacional da grade (ADMIN)
+/apc/admin/horarios/{id}/desativar desativação sem apagar histórico (ADMIN)
 /apc/admin/eventos             criação de evento (ADMIN)
 /apc/admin/eventos/{id}        alteração de evento (ADMIN)
 /apc/admin/eventos/{id}/cancelar cancelamento de evento (ADMIN)
@@ -176,9 +215,10 @@ APC_DB_PATH=/var/www/data/apc.db
 APC_UPLOADS_PATH=/var/www/data/apc-uploads
 APC_UPLOAD_MAX_BYTES=10485760
 APC_CALENDAR_MAX_BYTES=15728640
+APC_SCHEDULE_MAX_BYTES=10485760
 ```
 
-O PHP-FPM precisa ter `fileinfo`, `iconv` e `zlib` habilitados. `upload_max_filesize` e `post_max_size` devem aceitar pelo menos o maior limite configurado mais a sobrecarga do formulário.
+O PHP-FPM precisa ter `fileinfo`, `iconv`, `zlib`, `phar` e `simplexml` habilitados. `upload_max_filesize` e `post_max_size` devem aceitar pelo menos o maior limite configurado mais a sobrecarga do formulário.
 
 ## Permissões Linux
 
@@ -235,4 +275,4 @@ composer test
 npm run collaboration:check
 ```
 
-A cobertura inclui bimestres, atraso, último dia permitido, bloqueio após o prazo, vínculo de série, armazenamento privado, substituição, auditoria, IDOR entre professores, acesso da coordenação, painel simplificado, calendário e preservação das tabelas antigas.
+A cobertura inclui bimestres, atraso, bloqueio após o prazo, vínculo e IDOR, armazenamento privado, calendário, leitura XLSX real, revisão de associações, segunda/quinta-feira, ano/turno, deduplicação professor/turma, snapshots, versões de grade, ausência explícita de configuração, adulteração de POST, tracking e preservação de envios antigos.

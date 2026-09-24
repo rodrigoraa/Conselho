@@ -4,7 +4,7 @@ $types=['JORNADA_FORMATIVA'=>'Jornada formativa','CONSELHO_CLASSE'=>'Conselho de
 $csrf=Csrf::token();ob_start();
 ?>
 <section class="page-heading"><div><p class="eyebrow">Administração</p><h1>Eventos do APC</h1><p>Gerencie o calendário usado no seletor dos professores e consulte as ações auditadas.</p></div></section>
-<nav class="admin-nav" aria-label="Seções administrativas"><a href="#calendario">Calendário</a><a href="#auditoria">Auditoria</a></nav>
+<nav class="admin-nav" aria-label="Seções administrativas"><a href="#calendario">Calendário</a><a href="/apc/admin/horarios">Grades de horários</a><a href="#auditoria">Auditoria</a></nav>
 
 <section class="card admin-section" id="calendario"><div class="section-heading"><div><p class="eyebrow">Calendário APC</p><h2>Novo evento</h2></div></div>
 <div class="subtle-box apc-calendar-upload"><div><strong>Importar calendário anual em PDF</strong><p class="helper">Envie o calendário oficial de qualquer ano. O sistema identifica as descrições marcadas como “com APC”, separa as datas e apresenta uma conferência antes de cadastrar.</p></div><form method="post" action="/apc/admin/calendario/analisar" enctype="multipart/form-data" data-apc-upload-form><input type="hidden" name="_csrf" value="<?=e($csrf)?>"><label>Arquivo do calendário <input type="file" name="calendario" accept=".pdf,application/pdf" required><small class="helper">Somente PDF, até o limite configurado. O arquivo é usado para extração e não fica armazenado.</small></label><button class="primary">Analisar calendário</button></form></div>

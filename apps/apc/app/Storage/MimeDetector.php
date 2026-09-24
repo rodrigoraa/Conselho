@@ -17,6 +17,7 @@ final class MimeDetector
         if(!str_starts_with($head,"PK\x03\x04"))return null;
         $contents=file_get_contents($path);if(!is_string($contents))return null;
         if(str_contains($contents,'word/')&&str_contains($contents,'[Content_Types].xml'))return'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        if(str_contains($contents,'xl/')&&str_contains($contents,'[Content_Types].xml'))return'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         if(str_contains($contents,'application/vnd.oasis.opendocument.text'))return'application/vnd.oasis.opendocument.text';
         return null;
     }

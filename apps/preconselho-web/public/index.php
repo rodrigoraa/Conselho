@@ -17,6 +17,7 @@ date_default_timezone_set(Env::get('APP_TIMEZONE','America/Sao_Paulo')??'America
 try{
  $requestPath='/'.trim((string)(parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH)?:'/'),'/');if($requestPath==='//')$requestPath='/';$bodyLimit=1048576;
  if($requestPath==='/apc/admin/calendario/analisar')$bodyLimit=max(1048576,Env::int('APC_CALENDAR_MAX_BYTES',15728640)+1048576);
+ elseif($requestPath==='/apc/admin/horarios/analisar')$bodyLimit=max(1048576,Env::int('APC_SCHEDULE_MAX_BYTES',10485760)+1048576);
  elseif($requestPath==='/apc/envios'||preg_match('#^/apc/entregas/[0-9]+/anexos$#',$requestPath))$bodyLimit=max(1048576,Env::int('APC_UPLOAD_MAX_BYTES',10485760)*($requestPath==='/apc/envios'?1:max(1,Env::int('APC_UPLOAD_MAX_FILES',5)))+1048576);
  if((int)($_SERVER['CONTENT_LENGTH']??0)>$bodyLimit)throw new HttpException(413,'BODY_TOO_LARGE','Requisição muito grande.');$request=Request::capture();$repo=new AppRepository(ConnectionFactory::preconselho(Env::get('PRECONSELHO_DB_PATH',$root.'/storage/preconselho.db')??''));$persistentDays=max(1,min(90,Env::int('PROFESSOR_LOGIN_DAYS',15)));$persistentLogin=new PersistentLoginService($repo->db,$persistentDays,$https&&Env::bool('SESSION_SECURE'),Env::get('SESSION_SAMESITE','Lax')??'Lax');$persistentCookie=$_COOKIE[PersistentLoginService::COOKIE_NAME]??null;if(!empty($_SESSION['user'])){$expires=(int)($_SESSION['user']['persistent_expires_at']??0);if($expires>0&&$expires<=time()){$persistentLogin->forget($persistentCookie);$_SESSION=[];session_regenerate_id(true);}elseif($expires===0&&($rememberedUntil=$persistentLogin->remember($_SESSION['user']))!==null)$_SESSION['user']['persistent_expires_at']=$rememberedUntil;}elseif(($restored=$persistentLogin->restore($persistentCookie))!==null){session_regenerate_id(true);$_SESSION['user']=$restored;}$api=new SecretariaApiClient();$view=new View(dirname(__DIR__).'/resources/views');$c=new WebController($repo,$view,$api,$persistentLogin);$portal=new PortalController($view);$binding=new BindingController($repo,$api);$management=new ManagementController($repo,$api,$view);$collaboration=new CollaborationController($repo);$apcInstance=null;$apcModule=static function()use(&$apcInstance,$repo,$api,$root):ApcModule{return$apcInstance??=new ApcModule(ConnectionFactory::apc(Env::get('APC_DB_PATH',$root.'/storage/apc.db')??''),$repo->db,$api,$root);};$r=new Router();$auth=[new AuthMiddleware()];$admin=[new AuthMiddleware(),new RoleMiddleware(['ADMIN'])];$coord=[new AuthMiddleware(),new RoleMiddleware(['ADMIN','COORDENADOR'])];$professor=[new AuthMiddleware(),new RoleMiddleware(['PROFESSOR'])];
  $r->add('POST','/internal/collaboration/snapshot',fn($q)=>$collaboration->snapshot($q));$r->add('POST','/internal/collaboration/save',fn($q)=>$collaboration->save($q));
@@ -44,6 +45,11 @@ try{
  $r->add('POST','/apc/anexos/{id}/excluir',fn($q,$p)=>$apcModule()->attachments->delete($q,$p),$professor);
  $r->add('GET','/apc/relatorios',fn($q)=>$apcModule()->reports->index($q),$coord);
  $r->add('GET','/apc/admin',fn($q)=>$apcModule()->admin->index($q),$admin);
+ $r->add('GET','/apc/admin/horarios',fn($q)=>$apcModule()->schedules->index($q),$admin);
+ $r->add('POST','/apc/admin/horarios/analisar',fn($q)=>$apcModule()->schedules->analyze($q),$admin);
+ $r->add('GET','/apc/admin/horarios/revisar',fn($q)=>$apcModule()->schedules->review($q),$admin);
+ $r->add('POST','/apc/admin/horarios/confirmar',fn($q)=>$apcModule()->schedules->confirm($q),$admin);
+ $r->add('POST','/apc/admin/horarios/{id}/desativar',fn($q,$p)=>$apcModule()->schedules->deactivate($q,$p),$admin);
  $r->add('GET','/apc/admin/curriculo',fn($q)=>$apcModule()->curriculumAdmin->index($q),$admin);
  $r->add('POST','/apc/admin/curriculo/importar',fn($q)=>$apcModule()->curriculumAdmin->import($q),$admin);
  $r->add('POST','/apc/admin/curriculo/componentes',fn($q)=>$apcModule()->curriculumAdmin->createComponent($q),$admin);

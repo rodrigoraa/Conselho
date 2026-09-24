@@ -14,7 +14,7 @@ final class CalendarImporter
     private const ORIGINS=['SED','ESCOLA'];
     private const STATUSES=['ATIVO','CANCELADO'];
 
-    public function __construct(private readonly EventRepository $events,private readonly AuditRepository $audit,private readonly string $csvPath) {}
+    public function __construct(private readonly EventRepository $events,private readonly AuditRepository $audit,private readonly string $csvPath,private readonly?ScheduleService $schedules=null) {}
 
     public function import(?int $userId=null,string $ip='console',string $userAgent='APC calendar importer'): array
     {
@@ -34,9 +34,10 @@ final class CalendarImporter
                 $summary['por_tipo'][$row['tipo']]++;
                 $event=$this->events->findByImportKey($row['chave_importacao']);$reconciled=false;
                 if($event===null){$event=$this->equivalent($row);$reconciled=$event!==null;}
-                if($event===null){$this->events->insertImported($row,$userId??0);$summary['criados']++;continue;}
-                if($this->matches($event,$row)){$summary['inalterados']++;continue;}
-                $this->events->updateImported((int)$event['id'],$row);$summary[$reconciled?'conciliados':'atualizados']++;
+                if($event===null){$id=$this->events->insertImported($row,$userId??0);$summary['criados']++;if($row['status']==='ATIVO')$this->schedules?->ensureEvent($this->events->find($id));continue;}
+                if($this->matches($event,$row)){$summary['inalterados']++;if($row['status']==='ATIVO')$this->schedules?->ensureEvent($event);continue;}
+                if(((int)$event['ano_letivo']!==(int)$row['ano_letivo']||(string)$event['data']!==(string)$row['data'])&&$this->hasRequirementState((int)$event['id']))throw new RuntimeException('A data ou o ano de um evento com obrigações registradas não pode ser alterado pela importação.');
+                $this->events->updateImported((int)$event['id'],$row);$summary[$reconciled?'conciliados':'atualizados']++;if($row['status']==='ATIVO')$this->schedules?->ensureEvent($this->events->find((int)$event['id']));
             }
             $this->audit->record($userId,'CALENDARIO_ESCOLAR_IMPORTADO','apc_eventos',null,null,$summary+['arquivo'=>mb_substr(basename(str_replace('\\','/',$source)),0,180)],$ip,$userAgent);
             $db->commit();return$summary;
@@ -52,6 +53,8 @@ final class CalendarImporter
         if(count($matches)===1)return$matches[0];
         throw new RuntimeException("Há mais de um evento compatível com {$row['chave_importacao']}; a conciliação automática foi interrompida.");
     }
+
+    private function hasRequirementState(int$eventId):bool{$statement=$this->events->db->prepare('SELECT 1 FROM apc_evento_obrigacao_estados WHERE evento_id=:evento LIMIT 1');$statement->execute([':evento'=>$eventId]);return(bool)$statement->fetchColumn();}
 
     private function matches(array $event,array $row): bool
     {

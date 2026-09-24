@@ -17,14 +17,14 @@ final class SubmissionService
     private readonly StorageManager$storage;
     private readonly UploadPreparer$preparer;
 
-    public function __construct(private readonly SubmissionRepository$submissions,private readonly EventRepository$events,private readonly TermRepository$terms,private readonly AccessRepository$access,private readonly AuditRepository$audit,private readonly string$uploadsPath,private readonly int$maxBytes,?Closure$isUploaded=null,?Closure$moveUploaded=null,private readonly?string$fixedToday=null,?StorageManager$storage=null,?string$stagingPath=null)
+    public function __construct(private readonly SubmissionRepository$submissions,private readonly EventRepository$events,private readonly TermRepository$terms,private readonly AccessRepository$access,private readonly AuditRepository$audit,private readonly string$uploadsPath,private readonly int$maxBytes,?Closure$isUploaded=null,?Closure$moveUploaded=null,private readonly?string$fixedToday=null,?StorageManager$storage=null,?string$stagingPath=null,private readonly?ScheduleService$schedules=null)
     {
         $this->window=new SubmissionWindow($terms,$fixedToday);$this->storage=$storage??new StorageManager('local',['local'=>new \Apc\Storage\LocalFileStorage($uploadsPath)]);$this->preparer=new UploadPreparer($stagingPath??rtrim($uploadsPath,'/\\').'/.tmp',$maxBytes,self::MIME_EXTENSIONS,$isUploaded,$moveUploaded);
     }
 
-    public static function fromEnvironment(SubmissionRepository$submissions,EventRepository$events,TermRepository$terms,AccessRepository$access,AuditRepository$audit,string$root,?StorageManager$storage=null):self
+    public static function fromEnvironment(SubmissionRepository$submissions,EventRepository$events,TermRepository$terms,AccessRepository$access,AuditRepository$audit,string$root,?StorageManager$storage=null,?ScheduleService$schedules=null):self
     {
-        $uploads=Env::get('APC_UPLOADS_PATH',$root.'/storage/apc-uploads')??'';return new self($submissions,$events,$terms,$access,$audit,$uploads,Env::int('APC_UPLOAD_MAX_BYTES',10485760),null,null,null,$storage??StorageFactory::fromEnvironment($root),Env::get('APC_STAGING_PATH',rtrim($uploads,'/\\').'/.tmp'));
+        $uploads=Env::get('APC_UPLOADS_PATH',$root.'/storage/apc-uploads')??'';return new self($submissions,$events,$terms,$access,$audit,$uploads,Env::int('APC_UPLOAD_MAX_BYTES',10485760),null,null,null,$storage??StorageFactory::fromEnvironment($root),Env::get('APC_STAGING_PATH',rtrim($uploads,'/\\').'/.tmp'),$schedules);
     }
 
     public function availableEvents():array
@@ -39,19 +39,20 @@ final class SubmissionService
      * @param array<int, array<string, mixed>> $submissions
      * @return array{available: array<int, array<string, mixed>>, future: array<int, array<string, mixed>>, submitted_classes: array<int, array<int, int>>}
      */
-    public function teacherDashboard(array$series,array$submissions):array
+    public function teacherDashboard(array$series,array$submissions,?int$userId=null):array
     {
         $submitted=[];foreach($submissions as$submission)foreach($this->submissionClassIds($submission)as$classId)$submitted[$classId][]=(int)$submission['evento_id'];
         $available=[];$future=[];
-        foreach($this->events->active()as$event){
+        $eligible=[];foreach($this->events->active()as$event){
             $window=$this->window->describe($event);if(!$window['is_open'])continue;
             $requirements=[];$sentCount=0;
-            foreach($series as$item)foreach($item['turmas']as$class){$classId=(int)$class['id'];$sent=in_array((int)$event['id'],$submitted[$classId]??[],true);if($sent)$sentCount++;$requirements[]=$item+['turma'=>$class,'turma_id_externo'=>$classId,'turma_nome'=>(string)$class['nome'],'sent'=>$sent];}
-            $total=count($requirements);$status=$total===0?'SEM_VINCULO':($sentCount===$total?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'));
+            $scheduleState=$this->schedules?->ensureEvent($event);if($scheduleState!==null){if($scheduleState['status']==='CONFIGURADO')foreach($scheduleState['requirements']as$obligation){if($userId!==null&&(int)$obligation['professor_usuario_id']!==$userId)continue;$item=$this->requirementPresentation($obligation);$classId=(int)$obligation['turma_id_externo'];$eligible[$classId][]=(int)$event['id'];$sent=in_array((int)$event['id'],$submitted[$classId]??[],true);if($sent)$sentCount++;$requirements[]=$item+['sent'=>$sent];}$status=$scheduleState['status']==='CONFIGURADO'?(count($requirements)===0?'SEM_AULA':($sentCount===count($requirements)?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'))):$scheduleState['status'];}
+            else{foreach($series as$item)foreach($item['turmas']as$class){$classId=(int)$class['id'];$sent=in_array((int)$event['id'],$submitted[$classId]??[],true);if($sent)$sentCount++;$requirements[]=$item+['turma'=>$class,'turma_id_externo'=>$classId,'turma_nome'=>(string)$class['nome'],'sent'=>$sent];}$status=count($requirements)===0?'SEM_VINCULO':($sentCount===count($requirements)?'COMPLETO':($sentCount>0?'PARCIAL':'PENDENTE'));}
+            $total=count($requirements);
             $scheduled=array_merge($event,['submission_window'=>$window,'requirements'=>$requirements,'pending_classes'=>array_values(array_filter($requirements,static fn(array$requirement):bool=>!$requirement['sent'])),'sent_count'=>$sentCount,'total_count'=>$total,'status'=>$status]);
             if($window['is_open'])$available[]=$scheduled;else$future[]=$scheduled;
         }
-        return['available'=>$available,'future'=>$future,'submitted_classes'=>$submitted];
+        return['available'=>$available,'future'=>$future,'submitted_classes'=>$submitted,'eligible_events'=>$eligible];
     }
 
     /**
@@ -62,12 +63,14 @@ final class SubmissionService
         $events=$this->availableEvents();$indexed=[];
         foreach($this->submissions->list(0,'COORDENADOR')as$submission)foreach($this->submissionClassIds($submission)as$classId)$indexed[(int)$submission['evento_id'].'|'.(int)$submission['professor_usuario_id'].'|'.$classId]=$submission;
 
-        $roster=$this->access->submissionRoster();$withoutSeries=[];$trackedEvents=[];
+        $roster=$this->schedules===null?$this->access->submissionRoster():['requirements'=>[],'without_series'=>[]];$withoutSeries=[];$trackedEvents=[];
         foreach($events as$event){
             foreach($roster['without_series']as$professor)$withoutSeries[(int)$professor['professor_usuario_id']]=$professor;
 
-            $professors=[];
-            foreach($roster['requirements']as$requirement){
+            $professors=[];$scheduleState=$this->schedules?->ensureEvent($event);$eventRequirements=$scheduleState===null?$roster['requirements']:($scheduleState['status']==='CONFIGURADO'?$scheduleState['requirements']:[]);
+            foreach($eventRequirements as$requirement){
+                if($scheduleState!==null&&(!$this->access->isActiveTeacher((int)$requirement['professor_usuario_id'])||!$this->access->hasActiveClassBinding((int)$requirement['professor_usuario_id'],(int)$requirement['turma_id_externo'],(int)$event['ano_letivo'],(string)$requirement['turno'])))continue;
+                if($scheduleState!==null)$requirement=$this->requirementPresentation($requirement);
                 $userId=(int)$requirement['professor_usuario_id'];
                 if(!isset($professors[$userId]))$professors[$userId]=['professor_usuario_id'=>$userId,'professor_nome'=>$requirement['professor_nome'],'requirements'=>[]];
                 $key=(int)$event['id'].'|'.$userId.'|'.(int)$requirement['turma_id_externo'];$submission=$indexed[$key]??null;
@@ -82,7 +85,7 @@ final class SubmissionService
             }unset($professor);
             $professors=array_values($professors);$order=['PENDENTE'=>0,'PARCIAL'=>1,'COMPLETO'=>2];
             usort($professors,static fn(array$a,array$b):int=>[$order[$a['status']],mb_strtoupper((string)$a['professor_nome'])]<=>[$order[$b['status']],mb_strtoupper((string)$b['professor_nome'])]);
-            $trackedEvents[]=$event+['professors'=>$professors,'professor_count'=>count($professors),'incomplete_count'=>$counts['partial_count']+$counts['pending_count']]+$counts;
+            $trackedEvents[]=$event+['professors'=>$professors,'professor_count'=>count($professors),'incomplete_count'=>$counts['partial_count']+$counts['pending_count'],'schedule_status'=>$scheduleState['status']??'LEGACY_BINDINGS']+$counts;
         }
         return['events'=>$trackedEvents,'without_series'=>array_values($withoutSeries)];
     }
@@ -90,7 +93,7 @@ final class SubmissionService
     public function submit(array$input,array$file,array$user,string$ip,string$userAgent):int
     {
         $userId=(int)($user['id']??0);$role=(string)($user['perfil']??'');
-        if($role!=='PROFESSOR'&&!$this->access->isActiveTeacher($userId))throw new HttpException(403,'APC_FORBIDDEN','Somente usuários com cadastro docente ativo podem enviar arquivos de APC.');
+        if(!$this->access->isActiveTeacher($userId))throw new HttpException(403,'APC_FORBIDDEN','Somente usuários com cadastro docente ativo podem enviar arquivos de APC.');
         $eventId=filter_var($input['evento_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$event=$eventId?$this->events->find((int)$eventId):null;
         if(!$event||$event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_NOT_FOUND','Selecione um evento APC válido.');
         $window=$this->window->assertOpen($event);$stage=trim((string)($input['etapa']??''));$year=trim((string)($input['ano_serie']??''));
@@ -98,6 +101,7 @@ final class SubmissionService
         $classId=filter_var($input['turma_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);$classes=$this->access->classesForSeries($userId,'PROFESSOR',$stage,$year);$selectedClass=null;
         foreach($classes as$class)if((int)$class['id']===(int)$classId){$selectedClass=$class;break;}
         if($selectedClass===null)throw new HttpException(403,'APC_CLASS_FORBIDDEN','A turma selecionada não pertence a este professor, etapa e série.');
+        if($this->schedules!==null){$scheduleState=$this->schedules->ensureEvent($event);if($scheduleState['status']==='NAO_CONFIGURADA')throw new HttpException(422,'APC_SCHEDULE_NOT_CONFIGURED','Não há grade de horários configurada para o ano, turno e data deste evento.');if($scheduleState['status']==='LEGADO')throw new HttpException(422,'APC_LEGACY_EVENT','Este evento é histórico e não aceita novas obrigações inferidas.');$allowed=false;foreach($scheduleState['requirements']as$obligation)if((int)$obligation['professor_usuario_id']===$userId&&(int)$obligation['turma_id_externo']===(int)$classId){$allowed=true;break;}if(!$allowed)throw new HttpException(403,'APC_SCHEDULE_FORBIDDEN','Você não possui aula nesta turma na data oficial da APC.');}
         if($this->submissions->existingForClass((int)$eventId,(int)$user['id'],(int)$classId))throw$this->alreadySubmitted();
         $upload=$this->preparer->prepare($file,'envios/'.date('Y').'/'.date('m'),'Envie um arquivo PDF, Word, ODT, JPEG, PNG ou WebP.');$stored=null;
         try{
@@ -146,6 +150,7 @@ final class SubmissionService
     }
     private function alreadySubmitted():HttpException{return new HttpException(409,'APC_SUBMISSION_ALREADY_EXISTS','A APC deste evento e turma já foi anexada. O reenvio não é permitido.');}
     private function stageForYear(string$year):string{return str_starts_with($year,'EM')?'EM':((int)substr($year,2)<=5?'EF_AI':'EF_AF');}
+    private function requirementPresentation(array$obligation):array{$name=(string)$obligation['turma_nome_snapshot'];$upper=mb_strtoupper(trim($name));preg_match('/(?:^|\D)([1-9])\s*(?:º|°|ª)?/u',$upper,$matches);$number=(int)($matches[1]??0);$high=$number<=3&&($number>0&&(preg_match('/\b(?:EM|ENSINO\s+M[EÉ]DIO|M[EÉ]DIO|S[EÉ]RIE)\b/u',$upper)||preg_match('/[1-3]\s*ª/u',$upper)));$stage=$high?'EM':($number<=5?'EF_AI':'EF_AF');$year=($high?'EM':'EF').$number;return['professor_usuario_id'=>(int)$obligation['professor_usuario_id'],'professor_nome'=>(string)$obligation['professor_nome_snapshot'],'turma_id_externo'=>(int)$obligation['turma_id_externo'],'turma_nome'=>$name,'etapa'=>$stage,'ano_serie'=>$year,'rotulo_etapa'=>$stage==='EM'?'Ensino Médio':($stage==='EF_AI'?'Ensino Fundamental — Anos Iniciais':'Ensino Fundamental — Anos Finais'),'rotulo_serie'=>$high?$number.'ª série':$number.'º ano','ordem_etapa'=>$stage==='EF_AI'?1:($stage==='EF_AF'?2:3),'ordem_serie'=>$number,'turmas'=>[['id'=>(int)$obligation['turma_id_externo'],'nome'=>$name,'ano_letivo'=>0]],'turma'=>['id'=>(int)$obligation['turma_id_externo'],'nome'=>$name,'ano_letivo'=>0]];}
     /** @return array<int, int> */
     private function submissionClassIds(array$submission):array{$primary=(int)($submission['turma_id_externo']??0);if($primary>0)return[$primary];$ids=array_values(array_unique(array_filter(array_map('intval',explode(',',(string)($submission['turma_ids']??''))),static fn(int$id):bool=>$id>0)));return count($ids)===1?$ids:[];}
     private function today():string{return$this->fixedToday??date('Y-m-d');}

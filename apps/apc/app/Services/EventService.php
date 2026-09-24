@@ -10,15 +10,17 @@ final class EventService
 {
     private const TYPES=['JORNADA_FORMATIVA','CONSELHO_CLASSE','EMENDA_FERIADO','EXCEPCIONAL','OUTRO'];
 
-    public function __construct(private readonly EventRepository $events,private readonly AuditRepository $audit) {}
+    public function __construct(private readonly EventRepository $events,private readonly AuditRepository $audit,private readonly?ScheduleService $schedules=null) {}
 
     public function save(?int $id,array $input,int $userId,string $ip,string $userAgent): int
     {
         $data=$this->validate($input);$before=$id===null?null:$this->events->find($id);
         if($id!==null&&!$before)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
+        if($before&&((int)$before['ano_letivo']!==(int)$data['ano_letivo']||(string)$before['data']!==(string)$data['data'])){$statement=$this->events->db->prepare('SELECT 1 FROM apc_evento_obrigacao_estados WHERE evento_id=:evento LIMIT 1');$statement->execute([':evento'=>$id]);if($statement->fetchColumn())throw new HttpException(422,'APC_EVENT_REQUIREMENTS_LOCKED','A data ou o ano deste evento não pode ser alterado depois que suas obrigações foram registradas. Crie outro evento para preservar o histórico.');}
         $this->events->db->beginTransaction();
         try{
             if($id===null){$data['criado_por']=$userId;$id=$this->events->insert($data);}else{$this->events->update($id,$data);}
+            if($data['status']==='ATIVO')$this->schedules?->ensureEvent($this->events->find($id));
             $this->audit->record($userId,$before?'ALTERAR':'CRIAR','apc_eventos',$id,$before,$data,$ip,$userAgent);$this->events->db->commit();
         }catch(\Throwable $exception){if($this->events->db->inTransaction())$this->events->db->rollBack();throw$exception;}
         return$id;
