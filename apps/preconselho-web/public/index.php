@@ -48,6 +48,7 @@ try{
  $r->add('GET','/apc/admin/horarios',fn($q)=>$apcModule()->schedules->index($q),$admin);
  $r->add('POST','/apc/admin/horarios/analisar',fn($q)=>$apcModule()->schedules->analyze($q),$admin);
  $r->add('GET','/apc/admin/horarios/revisar',fn($q)=>$apcModule()->schedules->review($q),$admin);
+ $r->add('POST','/apc/admin/horarios/aba',fn($q)=>$apcModule()->schedules->selectSheet($q),$admin);
  $r->add('POST','/apc/admin/horarios/confirmar',fn($q)=>$apcModule()->schedules->confirm($q),$admin);
  $r->add('POST','/apc/admin/horarios/{id}/desativar',fn($q,$p)=>$apcModule()->schedules->deactivate($q,$p),$admin);
  $r->add('GET','/apc/admin/curriculo',fn($q)=>$apcModule()->curriculumAdmin->index($q),$admin);

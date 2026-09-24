@@ -1,4 +1,12 @@
 document.querySelectorAll('[data-confirm]').forEach(el=>el.addEventListener('click',e=>{if(!confirm(el.dataset.confirm))e.preventDefault()}));
+document.querySelectorAll('form[action^="/apc/admin/eventos"]').forEach(form=>{
+  const date=form.querySelector('input[name="data"]');
+  const reference=form.querySelector('select[name="dia_grade_referencia"]');
+  if(!date||!reference)return;
+  const warning=document.createElement('small');warning.className='helper';warning.setAttribute('role','alert');warning.textContent='Este evento ocorre no fim de semana. Selecione qual horário semanal deverá ser usado para definir os professores obrigados.';reference.after(warning);
+  const refresh=()=>{const weekday=date.value?new Date(`${date.value}T12:00:00Z`).getUTCDay():-1;const weekend=weekday===0||weekday===6;warning.hidden=!weekend;reference.required=weekend;};
+  date.addEventListener('change',refresh);refresh();
+});
 document.querySelectorAll('[data-print-page]').forEach(button=>button.addEventListener('click',()=>window.print()));
 
 const menuButton=document.querySelector('.menu-toggle');

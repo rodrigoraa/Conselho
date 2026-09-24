@@ -4,7 +4,7 @@ namespace Tests;
 
 use Apc\Controllers\ScheduleAdminController;
 use Apc\Repositories\{AccessRepository,AuditRepository,EventRepository,ScheduleRepository,SubmissionRepository,TermRepository};
-use Apc\Services\{ScheduleService,SubmissionService,XlsxScheduleParser};
+use Apc\Services\{EventService,ScheduleService,SubmissionService,XlsxScheduleParser};
 use Shared\Exceptions\HttpException;
 use Shared\Http\Request;
 use Shared\Support\View;
@@ -17,7 +17,7 @@ final class ApcScheduleTest extends ApcTestCase
 
     public function testAdministrativeSchedulePostsRequireCsrf():void
     {
-        [$main,$apc,$service]=$this->context();$_SESSION['user']=['id'=>1,'perfil'=>'ADMIN'];$_SESSION['_csrf']='valid-token';$controller=new ScheduleAdminController($service,new ScheduleRepository($apc),new View(dirname(__DIR__).'/apps/apc/resources/views'));try{$controller->analyze(new Request('POST','/apc/admin/horarios/analisar',[],[],[]));self::fail('POST sem CSRF deveria falhar.');}catch(HttpException$exception){self::assertSame(419,$exception->status);self::assertSame('CSRF_INVALID',$exception->errorCode);}unset($_SESSION['user'],$_SESSION['_csrf']);
+        [$main,$apc,$service]=$this->context();$_SESSION['user']=['id'=>1,'perfil'=>'ADMIN'];$_SESSION['_csrf']='valid-token';$controller=new ScheduleAdminController($service,new ScheduleRepository($apc),new View(dirname(__DIR__).'/apps/apc/resources/views'));foreach(['analyze','selectSheet','confirm']as$action)try{$controller->$action(new Request('POST','/apc/admin/horarios/aba',[],[],[]));self::fail('POST sem CSRF deveria falhar.');}catch(HttpException$exception){self::assertSame(419,$exception->status);self::assertSame('CSRF_INVALID',$exception->errorCode);}unset($_SESSION['user'],$_SESSION['_csrf']);
     }
 
     public function testMondayAndThursdayUseOnlyTeachersScheduledOnOfficialEventDate():void
@@ -93,7 +93,58 @@ final class ApcScheduleTest extends ApcTestCase
 
     public function testInvalidXlsxStructureDoesNotWritePartialRecords():void
     {
-        [$main,$apc,$service]=$this->context();$xlsx=$this->xlsx([['TURMA','AULA','SEGUNDA'],['7º A','1','Sem parenteses']]);try{$service->analyze(['name'=>'invalida.xlsx','tmp_name'=>$xlsx,'error'=>UPLOAD_ERR_OK,'size'=>filesize($xlsx)],['ano_letivo'=>2026,'turno'=>'MATUTINO','vigente_de'=>'2026-02-01']);self::fail('Estrutura inválida deveria falhar.');}catch(HttpException$exception){self::assertSame('APC_SCHEDULE_STRUCTURE',$exception->errorCode);}self::assertSame(0,(int)$apc->query('SELECT COUNT(*) FROM apc_horario_importacoes')->fetchColumn());
+        [$main,$apc,$service]=$this->context();$xlsx=$this->xlsx([['TURMA','AULA','SEGUNDA'],['7º A','1','Sem parenteses']]);$analysis=$service->analyze(['name'=>'invalida.xlsx','tmp_name'=>$xlsx,'error'=>UPLOAD_ERR_OK,'size'=>filesize($xlsx)],['ano_letivo'=>2026,'turno'=>'MATUTINO','vigente_de'=>'2026-02-01']);self::assertCount(1,$analysis['errors']);self::assertSame('Sem parenteses',$analysis['errors'][0]['value']);try{$service->confirm($analysis,[],1,'127.0.0.1','test');self::fail('Estrutura inválida não pode ser confirmada.');}catch(HttpException$exception){self::assertSame('APC_SCHEDULE_STRUCTURE',$exception->errorCode);}self::assertSame(0,(int)$apc->query('SELECT COUNT(*) FROM apc_horario_importacoes')->fetchColumn());
+    }
+
+    public function testBlockLayoutAndUnassignedTeacherDoNotCreateObligation():void
+    {
+        [$main,$apc,$service]=$this->context();$this->events($apc);$xlsx=$this->xlsx([['7º Ano - Ensino Fundamental'],['','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA'],['1ª Aula','Matemática(Professor Um)','','','Química(---)',''],['2ª Aula','','','','Arte(VAGO)','']]);$analysis=$service->analyze(['name'=>'blocos.xlsx','tmp_name'=>$xlsx,'error'=>UPLOAD_ERR_OK,'size'=>filesize($xlsx)],['ano_letivo'=>2026,'turno'=>'MATUTINO','vigente_de'=>'2026-01-01']);self::assertCount(3,$analysis['rows']);self::assertSame([],$analysis['errors']);self::assertTrue($analysis['rows'][1]['professor_ausente']);$classKey=$analysis['rows'][0]['turma_key'];$service->confirm($analysis,['turma_map'=>[$classKey=>10]],1,'127.0.0.1','test');self::assertSame(2,(int)$apc->query('SELECT COUNT(*) FROM apc_horarios WHERE professor_usuario_id IS NULL')->fetchColumn());self::assertSame(0,(int)$apc->query('SELECT COUNT(*) FROM apc_evento_obrigacoes WHERE evento_id=2')->fetchColumn());
+    }
+
+    public function testRealisticBlockFixtureHasTwoStagesFiveDaysAndSeparateClasses():void
+    {
+        $fixture=[['6º Ano - Ensino Fundamental'],['','Segunda-Feira','Terça-Feira','Quarta-Feira','Quinta-Feira','Sexta-Feira'],['1ª Aula','Matemática(Ana)','','Geografia(Fabi)','Ciências(Beto)',''],['2º Aula','','Arte(VAGO)','','','História(Caio)'],[],['2º Ano - Ensino Médio'],['','Segunda-Feira','Terça-Feira','Quarta-Feira','Quinta-Feira','Sexta-Feira'],['1 Aula','Física(Dora)','','','Química(---)',''],['2ª AULA','','','','','Literatura(Eva)']];$xlsx=$this->xlsx($fixture);$sheets=(new XlsxScheduleParser())->inspect($xlsx);self::assertCount(1,$sheets);self::assertSame([],$sheets[0]['errors']);self::assertCount(8,$sheets[0]['rows']);self::assertSame(2,$sheets[0]['classes']);$days=array_values(array_unique(array_column($sheets[0]['rows'],'dia_semana')));sort($days);self::assertSame([1,2,3,4,5],$days);self::assertSame('2º Ano - Ensino Médio',$sheets[0]['rows'][5]['turma_importada']);self::assertSame(1,$sheets[0]['rows'][5]['numero_aula']);
+    }
+
+    public function testCheckedInXlsxFixtureWithDuplicateLayoutTabsAndMalformedCell():void
+    {
+        $encoded=(string)file_get_contents(__DIR__.'/fixtures/apc_blocos.xlsx.b64');$binary=base64_decode(trim($encoded),true);self::assertNotFalse($binary);$path=$this->directory.DIRECTORY_SEPARATOR.'fixture.xlsx';file_put_contents($path,$binary);$sheets=(new XlsxScheduleParser())->inspect($path);self::assertCount(2,$sheets);self::assertSame('EF EM Vertical',$sheets[0]['name']);self::assertSame('EF EM Horizontal',$sheets[1]['name']);self::assertCount(5,$sheets[0]['rows']);self::assertSame($sheets[0]['rows'][0]['turma_importada'],$sheets[1]['rows'][0]['turma_importada']);self::assertTrue($sheets[0]['rows'][1]['professor_ausente']);self::assertSame('Filosofia(Vanderson',$sheets[0]['errors'][0]['value']);self::assertSame(8,$sheets[0]['errors'][0]['row']);
+    }
+
+    public function testWeekendRequiresReferenceAndUsesChosenWeekday():void
+    {
+        [$main,$apc,$service]=$this->context();$apc->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por)VALUES(5,2026,'2026-10-17','Sábado','OUTRO','ESCOLA','','ATIVO',1)");$this->import($apc,[$this->row(10,'7º A',4,1,3,'Professor Um')]);$event=(new EventRepository($apc))->find(5);self::assertSame('DIA_REFERENCIA_NAO_CONFIGURADO',$service->ensureEvent($event)['status']);self::assertSame(0,(int)$apc->query('SELECT COUNT(*) FROM apc_evento_obrigacao_estados WHERE evento_id=5')->fetchColumn());$apc->exec('UPDATE apc_eventos SET dia_grade_referencia=4 WHERE id=5');$result=$service->ensureEvent((new EventRepository($apc))->find(5));self::assertSame('CONFIGURADO',$result['status']);self::assertCount(1,$result['requirements']);
+    }
+
+    public function testTrackingKeepsSnapshotAfterTeacherAndBindingAreDisabled():void
+    {
+        [$main,$apc,$service]=$this->context();$this->events($apc);$this->import($apc,[$this->row(10,'7º A',4,1,3,'Professor Um')]);$service->ensureEvent((new EventRepository($apc))->find(2));$main->exec('UPDATE usuarios SET ativo=0 WHERE id=3;UPDATE vinculos_professor_turma SET ativo=0 WHERE id=1');$tracked=$this->submissionService($main,$apc,$service)->tracking()['events'];$event=current(array_filter($tracked,static fn($item)=>$item['id']==2));self::assertSame(1,$event['professor_count']);self::assertSame(1,$event['pending_count']);self::assertTrue($event['professors'][0]['requirements'][0]['vinculo_atual_alterado']);
+    }
+
+    public function testMultipleSheetsRequireExplicitChoiceAndMalformedBlockShowsLocation():void
+    {
+        [$main,$apc,$service]=$this->context();$xlsx=$this->xlsx([['7º Ano - Ensino Fundamental'],['','SEGUNDA','TERÇA'],['1ª Aula','Matemática(Professor Um)','Língua Inglesa']]);$archive=new \PharData($xlsx,0,null,\Phar::ZIP);$archive['xl/workbook.xml']='<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Original" sheetId="1" r:id="rId1"/><sheet name="Alternativa" sheetId="2" r:id="rId2"/></sheets></workbook>';$archive['xl/_rels/workbook.xml.rels']='<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>';$archive['xl/worksheets/sheet2.xml']='<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>8º Ano - Ensino Fundamental</t></is></c></row><row r="2"><c r="B2" t="inlineStr"><is><t>QUINTA</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>1ª Aula</t></is></c><c r="B3" t="inlineStr"><is><t>Arte(Professor Dois)</t></is></c></row></sheetData></worksheet>';unset($archive);
+        $analysis=$service->analyze(['name'=>'abas.xlsx','tmp_name'=>$xlsx,'error'=>UPLOAD_ERR_OK,'size'=>filesize($xlsx)],['ano_letivo'=>2026,'turno'=>'MATUTINO','vigente_de'=>'2026-01-01']);self::assertNull($analysis['selected_sheet']);self::assertCount(2,$analysis['sheets']);try{$service->confirm($analysis,[],1,'127.0.0.1','test');self::fail('Aba não selecionada deveria falhar.');}catch(HttpException$exception){self::assertSame('APC_SCHEDULE_STRUCTURE',$exception->errorCode);}$original=$service->selectSheet($analysis,'Original');self::assertSame(3,$original['errors'][0]['row']);self::assertSame('TERCA',$original['errors'][0]['day']);self::assertSame('Língua Inglesa',$original['errors'][0]['value']);$alternate=$service->selectSheet($analysis,'Alternativa');self::assertCount(1,$alternate['rows']);self::assertSame('Alternativa',$alternate['selected_sheet']);
+    }
+
+    public function testWeekendReferenceCanSelectMondayAndCannotChangeAfterSnapshot():void
+    {
+        [$main,$apc,$schedules]=$this->context();$apc->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por,dia_grade_referencia)VALUES(5,2026,'2026-10-17','Sábado','OUTRO','ESCOLA','','ATIVO',1,1)");$this->import($apc,[$this->row(10,'7º A',1,1,3,'Professor Um'),$this->row(20,'8º A',5,1,4,'Professor Dois')]);$result=$schedules->ensureEvent((new EventRepository($apc))->find(5));self::assertSame([3],array_map('intval',array_column($result['requirements'],'professor_usuario_id')));$service=new EventService(new EventRepository($apc),new AuditRepository($apc),$schedules);try{$service->save(5,['ano_letivo'=>2026,'data'=>'2026-10-17','dia_grade_referencia'=>'5','titulo'=>'Sábado','tipo'=>'OUTRO','origem'=>'ESCOLA','descricao'=>'','status'=>'ATIVO'],1,'127.0.0.1','test');self::fail('Mudança após snapshot deveria falhar.');}catch(HttpException$exception){self::assertSame('APC_EVENT_REQUIREMENTS_LOCKED',$exception->errorCode);}
+    }
+
+    public function testManualWeekendEventRejectsMissingReference():void
+    {
+        [$main,$apc,$schedules]=$this->context();$service=new EventService(new EventRepository($apc),new AuditRepository($apc),$schedules);try{$service->save(null,['ano_letivo'=>2026,'data'=>'2026-12-05','titulo'=>'APC de sábado','tipo'=>'OUTRO','origem'=>'ESCOLA','descricao'=>'','status'=>'ATIVO'],1,'127.0.0.1','test');self::fail('Sábado sem referência deveria falhar.');}catch(HttpException$exception){self::assertSame('APC_EVENT_REFERENCE_DAY',$exception->errorCode);}self::assertSame(0,(int)$apc->query('SELECT COUNT(*) FROM apc_eventos')->fetchColumn());
+    }
+
+    public function testDeactivationKeepsSnapshotAndStopsNewSnapshots():void
+    {
+        [$main,$apc,$schedules]=$this->context();$this->events($apc);$id=$this->import($apc,[$this->row(10,'7º A',4,1,3,'Professor Um')]);$schedules->ensureEvent((new EventRepository($apc))->find(2));$schedules->deactivate($id,1,'127.0.0.1','test');self::assertCount(1,$schedules->ensureEvent((new EventRepository($apc))->find(2))['requirements']);self::assertSame('NAO_CONFIGURADA',$schedules->ensureEvent((new EventRepository($apc))->find(1))['status']);self::assertSame(1,(int)$apc->query("SELECT COUNT(*) FROM apc_auditoria WHERE acao='DESATIVAR_HORARIO_APC'")->fetchColumn());
+    }
+
+    public function testSameClassAndTeacherInOtherShiftDoesNotCross():void
+    {
+        [$main,$apc,$schedules]=$this->context();$main->exec("INSERT INTO vinculos_professor_turma(id,professor_id,turma_externa_id,turma_nome_snapshot,turma_ano_letivo_snapshot,turno)VALUES(3,1,10,'7º A',2026,'VESPERTINO')");$this->events($apc);$this->import($apc,[$this->row(10,'7º A',4,1,3,'Professor Um')],2026,'MATUTINO');$this->import($apc,[$this->row(10,'7º A',4,1,3,'Professor Um')],2026,'VESPERTINO');$requirements=$schedules->ensureEvent((new EventRepository($apc))->find(2))['requirements'];self::assertCount(1,$requirements);self::assertSame('MATUTINO',$requirements[0]['turno']);
     }
 
     private function context():array{$main=$this->mainDatabase();$this->seedMain($main);$apc=$this->apcDatabase();$service=new ScheduleService(new ScheduleRepository($apc),new EventRepository($apc),new AccessRepository($main),new AuditRepository($apc),new XlsxScheduleParser(),$this->directory,1048576,static fn(string$path):bool=>is_file($path),static fn(string$from,string$to):bool=>rename($from,$to));return[$main,$apc,$service];}

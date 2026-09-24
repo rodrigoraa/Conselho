@@ -38,7 +38,7 @@ final class ScheduleRepository
 
     public function rowsForEvent(int $year,string $date,int $weekday):array
     {
-        $statement=$this->db->prepare("SELECT h.*,i.turno FROM apc_horarios h JOIN apc_horario_importacoes i ON i.id=h.importacao_id WHERE i.ano_letivo=:ano AND i.status='ATIVO' AND i.vigente_de<=:data AND (i.vigente_ate IS NULL OR i.vigente_ate>=:data) AND h.dia_semana=:dia ORDER BY h.turma_nome_snapshot,h.numero_aula");$statement->execute([':ano'=>$year,':data'=>$date,':dia'=>$weekday]);return$statement->fetchAll();
+        $statement=$this->db->prepare("SELECT h.*,i.turno FROM apc_horarios h JOIN apc_horario_importacoes i ON i.id=h.importacao_id WHERE i.ano_letivo=:ano AND i.status='ATIVO' AND i.vigente_de<=:data AND (i.vigente_ate IS NULL OR i.vigente_ate>=:data) AND h.dia_semana=:dia AND h.professor_usuario_id IS NOT NULL ORDER BY h.turma_nome_snapshot,h.numero_aula");$statement->execute([':ano'=>$year,':data'=>$date,':dia'=>$weekday]);return$statement->fetchAll();
     }
 
     public function obligationState(int $eventId):?array

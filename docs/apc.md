@@ -25,15 +25,17 @@ As tabelas antigas de planos, currículo, entregas e anexos por aluno não são 
 
 ## Grade semanal e obrigações por evento
 
-A obrigação não é mais derivada de todas as turmas vinculadas. Para cada evento, o sistema usa exclusivamente `apc_eventos.data`, converte a data em dia ISO (`1 = segunda` até `5 = sexta`) e consulta a versão da grade vigente no ano e na data do evento. A data do upload nunca participa desse cálculo.
+A obrigação não é mais derivada de todas as turmas vinculadas. Para cada evento, o sistema usa `apc_eventos.data` para escolher a versão da grade vigente no ano e na data oficial. De segunda a sexta-feira, o dia da data é o padrão; `dia_grade_referencia` permite selecionar explicitamente outro dia de 1 (segunda) a 5 (sexta). Aos sábados e domingos, esse campo é obrigatório para eventos criados/editados manualmente. Eventos de fim de semana já importados sem referência ficam em `DIA_REFERENCIA_NAO_CONFIGURADO`, sem snapshot vazio nem cobrança, até a administração definir a referência. A data do upload nunca participa do cálculo.
 
 As grades são administradas em `/apc/admin/horarios`, somente por ADMIN. Matutino e vespertino usam o mesmo importador e são versionados separadamente por ano letivo, turno, `vigente_de` e `vigente_ate` opcional. Vigências ativas do mesmo ano e turno não podem se sobrepor.
 
-O XLSX deve usar uma tabela com os cabeçalhos `TURMA`, `AULA` e um ou mais dias (`SEGUNDA` a `SEXTA`). A turma pode ser repetida ou informada uma vez e deixada em branco nas linhas seguintes. Cada célula usa:
+O XLSX pode usar tabela com os cabeçalhos `TURMA`, `AULA` e dias (`SEGUNDA` a `SEXTA`), ou blocos como os arquivos `matutino.xlsx` e `vespertino.xlsx`: título da turma (`7º Ano - Ensino Fundamental`), linha dos dias, e linhas `1ª Aula`, `2ª Aula` etc. Se houver várias abas reconhecidas, a administração deve escolher uma; as outras não são importadas. Cada célula preenchida usa:
 
 ```text
 DISCIPLINA(PROFESSOR)
 ```
+
+`DISCIPLINA(---)`, `DISCIPLINA(VAGO)` e equivalentes indicam aula sem professor definido: a aula é preservada na grade, mas não gera obrigação para ninguém. Uma célula sem o parêntese do professor ou com parêntese não fechado é erro estrutural. A conferência apresenta aba, turma, linha, dia, número da aula, valor e motivo; a confirmação é bloqueada até uma nova planilha corrigida ser analisada.
 
 O fluxo é análise temporária, conferência e confirmação. Extensão, MIME, tamanho, estrutura OpenXML, células, dias, número da aula, duplicidades e o formato disciplina/professor são validados. XLS/XLSM e macros não são aceitos. O arquivo temporário fica fora de `public/` e é removido após a análise.
 
@@ -48,9 +50,11 @@ A migration `008_grade_horarios.sql` cria:
 - `apc_evento_obrigacao_estados`: evento configurado ou legado;
 - `apc_evento_obrigacoes`: snapshot único por evento, professor e turma.
 
-O snapshot é materializado na criação/importação do evento quando já existe grade completa, na confirmação de uma grade que cobre eventos existentes ou, como proteção, no primeiro cálculo seguro. Duas aulas do mesmo professor na mesma turma e dia geram uma obrigação. Ao confirmar uma nova versão, eventos cobertos só são recalculados quando ainda não possuem envio; a ação fica registrada como `RECALCULAR_OBRIGACOES_APC`. Eventos com envio nunca são recalculados. A data ou o ano do evento ficam bloqueados depois que as obrigações são registradas.
+A migration `009_dia_referencia_e_professor_pendente.sql` acrescenta o dia de referência e permite `professor_usuario_id` nulo nas aulas vagas. Ela preserva IDs existentes de horários e obrigações, sem modificar envios ou arquivos. Faça backup e aplique-a em janela controlada; a reconstrução de `apc_horarios` pode exigir tempo conforme o volume de dados.
 
-Eventos anteriores que já possuem `apc_envios` são preservados como legado: arquivos continuam visíveis e baixáveis, sem inferência retroativa. A migration não altera nem apaga `apc_envios` ou `apc_envio_turmas`.
+O snapshot é materializado na criação/importação do evento quando já existe grade completa, na confirmação de uma grade que cobre eventos existentes ou, como proteção, no primeiro cálculo seguro. Duas aulas do mesmo professor na mesma turma e dia geram uma obrigação. Ao confirmar uma nova versão, eventos cobertos só são recalculados quando ainda não possuem envio e seus vínculos snapshotados continuam ativos; a ação fica registrada como `RECALCULAR_OBRIGACOES_APC`. Eventos com envio nunca são recalculados. Obrigações já materializadas continuam no acompanhamento mesmo que o professor ou vínculo seja desativado depois, com aviso de vínculo atual alterado. Novos envios continuam exigindo professor e vínculo ativos. Data, ano e dia de referência ficam bloqueados depois que as obrigações são registradas.
+
+Eventos anteriores que já possuem `apc_envios` são preservados como `LEGADO`: arquivos continuam visíveis e baixáveis, sem inferência retroativa. Isso inclui eventos parcialmente enviados; o acompanhamento sinaliza que suas pendências não foram calculadas e os arquivos seguem na aba **Consultar arquivos**. Não há conciliação automática. Para tratar cada caso, a administração deve comparar os envios existentes com a grade vigente e os vínculos históricos, registrar a decisão em procedimento auditável e planejar uma operação específica; não se deve apagar arquivos nem preencher obrigações diretamente no banco. A migration não altera nem apaga `apc_envios` ou `apc_envio_turmas`.
 
 Se faltar versão vigente para algum turno ativo, o estado é **grade não configurada**: o backend bloqueia envio e a coordenação não calcula pendências. Se a grade estiver completa e o professor realmente não tiver aula, o painel informa que nenhum envio é necessário.
 
@@ -117,6 +121,7 @@ O comando esperado inclui:
 ```text
 Aplicada: 005_envio_simplificado.sql
 Aplicada: 008_grade_horarios.sql
+Aplicada: 009_dia_referencia_e_professor_pendente.sql
 Migrations do APC concluídas.
 ```
 
@@ -186,6 +191,7 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 /apc/admin/calendario/confirmar importação das datas revisadas (ADMIN)
 /apc/admin/calendario/importar importação do calendário CSV de 2026 (ADMIN, compatibilidade)
 /apc/admin/horarios/analisar   análise temporária do XLSX (ADMIN)
+/apc/admin/horarios/aba        seleção da aba analisada (ADMIN)
 /apc/admin/horarios/confirmar  confirmação transacional da grade (ADMIN)
 /apc/admin/horarios/{id}/desativar desativação sem apagar histórico (ADMIN)
 /apc/admin/eventos             criação de evento (ADMIN)
@@ -275,4 +281,4 @@ composer test
 npm run collaboration:check
 ```
 
-A cobertura inclui bimestres, atraso, bloqueio após o prazo, vínculo e IDOR, armazenamento privado, calendário, leitura XLSX real, revisão de associações, segunda/quinta-feira, ano/turno, deduplicação professor/turma, snapshots, versões de grade, ausência explícita de configuração, adulteração de POST, tracking e preservação de envios antigos.
+A cobertura inclui bimestres, atraso, bloqueio após o prazo, vínculo e IDOR, armazenamento privado, calendário, leitura XLSX real, revisão de associações, segunda/quinta-feira, ano/turno, deduplicação professor/turma, snapshots, versões de grade, ausência explícita de configuração, adulteração de POST, tracking e preservação de envios antigos. `tests/fixtures/apc_blocos.xlsx.b64` contém um XLSX anonimizado codificado em Base64, decodificado em diretório temporário pelos testes; há também testes com XLSX gerado no layout por blocos.

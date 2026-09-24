@@ -54,13 +54,13 @@ final class EventRepository
 
     public function insert(array $data): int
     {
-        $statement=$this->db->prepare('INSERT INTO apc_eventos(ano_letivo,data,titulo,tipo,origem,descricao,justificativa,numero_processo,documento_referencia,atividade_fornecida_sed,status,criado_por)VALUES(:ano,:data,:titulo,:tipo,:origem,:descricao,:justificativa,:processo,:documento,:sed,:status,:usuario)');
+        $statement=$this->db->prepare('INSERT INTO apc_eventos(ano_letivo,data,titulo,tipo,origem,descricao,justificativa,numero_processo,documento_referencia,atividade_fornecida_sed,status,criado_por,dia_grade_referencia)VALUES(:ano,:data,:titulo,:tipo,:origem,:descricao,:justificativa,:processo,:documento,:sed,:status,:usuario,:dia_grade)');
         $statement->execute($this->parameters($data)+[':usuario'=>$data['criado_por']]);return(int)$this->db->lastInsertId();
     }
 
     public function update(int $id,array $data): void
     {
-        $statement=$this->db->prepare('UPDATE apc_eventos SET ano_letivo=:ano,data=:data,titulo=:titulo,tipo=:tipo,origem=:origem,descricao=:descricao,justificativa=:justificativa,numero_processo=:processo,documento_referencia=:documento,atividade_fornecida_sed=:sed,status=:status,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
+        $statement=$this->db->prepare('UPDATE apc_eventos SET ano_letivo=:ano,data=:data,titulo=:titulo,tipo=:tipo,origem=:origem,descricao=:descricao,justificativa=:justificativa,numero_processo=:processo,documento_referencia=:documento,atividade_fornecida_sed=:sed,status=:status,dia_grade_referencia=:dia_grade,atualizado_em=CURRENT_TIMESTAMP WHERE id=:id');
         $statement->execute($this->parameters($data)+[':id'=>$id]);
     }
 
@@ -88,7 +88,7 @@ final class EventRepository
 
     private function parameters(array $data): array
     {
-        return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':justificativa'=>$data['justificativa'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':sed'=>$data['atividade_fornecida_sed'],':status'=>$data['status']];
+        return[':ano'=>$data['ano_letivo'],':data'=>$data['data'],':titulo'=>$data['titulo'],':tipo'=>$data['tipo'],':origem'=>$data['origem'],':descricao'=>$data['descricao'],':justificativa'=>$data['justificativa'],':processo'=>$data['numero_processo'],':documento'=>$data['documento_referencia'],':sed'=>$data['atividade_fornecida_sed'],':status'=>$data['status'],':dia_grade'=>$data['dia_grade_referencia']??null];
     }
 
     private function importParameters(array $data): array
