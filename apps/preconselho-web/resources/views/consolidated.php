@@ -6,4 +6,4 @@
     <div class="table"><table id="consolidated-table"><thead><tr><th>Período</th><th>Turno</th><th>Turma</th><th>Relato coletivo</th><th>Última atualização</th></tr></thead><tbody><?php foreach($rows as$row):?><tr><td data-label="Período"><strong><?=e($row['periodo'])?></strong><small><?=e($row['ano_letivo'])?></small></td><td data-label="Turno"><?=e($row['turno']==='VESPERTINO'?'Vespertino':'Matutino')?></td><td data-label="Turma"><?=e($row['turma'])?></td><td data-label="Relato" class="consolidated-narrative"><?=nl2br(e($row['relato']))?></td><td data-label="Última atualização"><strong><?=e($row['atualizado_por'])?></strong><small><?=e(date('d/m/Y H:i',strtotime($row['atualizado_em'])))?></small></td></tr><?php endforeach;?></tbody></table></div>
     <?php endif;?>
 </section>
-<?php $content=ob_get_clean();require __DIR__.'/layout.php';
+<?php $content=ob_get_clean();$pageClass='consolidated-page';require __DIR__.'/layout.php';

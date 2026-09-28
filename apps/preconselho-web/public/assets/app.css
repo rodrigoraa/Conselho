@@ -23,7 +23,7 @@
   @page{size:A4 landscape;margin:8mm}
   html,body{background:#fff!important;color:#000!important;font-family:Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.2}
   main{width:auto!important;margin:0!important;padding:0!important}
-  main>*{display:none!important}
+  main:has(>.print-document)>*{display:none!important}
   main>.print-document{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9mm;width:100%;color:#000}
   .print-document *{box-sizing:border-box;color:#000!important}
   .print-column{min-width:0}
@@ -131,6 +131,32 @@
   .final-document-preview,.final-document-preview[hidden]{display:block!important}
   .final-council-text{max-width:100%;margin:8mm 0 0!important;font-size:11pt!important;line-height:1.6!important;text-align:justify;text-indent:8mm;white-space:pre-line;overflow-wrap:break-word;word-break:normal;hyphens:auto;break-inside:auto}
   .paper-signatures{display:grid!important}
+}
+
+/* Impressão do Consolidado: página nomeada para não alterar os outros documentos. */
+@page consolidated{size:A4 landscape;margin:10mm}
+@media print{
+  body.consolidated-page{page:consolidated}
+  .consolidated-page .skip,.consolidated-page .app-header,.consolidated-page footer,.consolidated-page .page-heading .actions,.consolidated-page .search{display:none!important}
+  .consolidated-page .page-heading{display:block!important;margin:0 0 5mm}
+  .consolidated-page .page-heading h1{font-size:16pt}
+  .consolidated-page .card{border:0;box-shadow:none;padding:0;margin:0;break-inside:auto}
+  .consolidated-page .section-heading{display:block;margin-bottom:3mm}
+  .consolidated-page .section-heading h2{font-size:12pt}
+  .consolidated-page .table{overflow:visible!important;width:100%}
+  .consolidated-page #consolidated-table{display:table!important;width:100%;min-width:0!important;table-layout:fixed;border-collapse:collapse;font-size:9pt}
+  .consolidated-page #consolidated-table thead{display:table-header-group!important;position:static!important}
+  .consolidated-page #consolidated-table tbody{display:table-row-group!important}
+  .consolidated-page #consolidated-table tr,.consolidated-page #consolidated-table tr[hidden]{display:table-row!important;break-inside:avoid-page}
+  .consolidated-page #consolidated-table th,.consolidated-page #consolidated-table td{display:table-cell!important;min-width:0!important;max-width:none!important;padding:2mm!important;border:1px solid #bbb!important;vertical-align:top;text-align:left!important;white-space:normal;overflow-wrap:anywhere;word-break:normal}
+  .consolidated-page #consolidated-table th{background:#f2f4f5!important}
+  .consolidated-page #consolidated-table th:nth-child(1){width:14%}
+  .consolidated-page #consolidated-table th:nth-child(2){width:12%}
+  .consolidated-page #consolidated-table th:nth-child(3){width:12%}
+  .consolidated-page #consolidated-table th:nth-child(4){width:43%}
+  .consolidated-page #consolidated-table th:nth-child(5){width:19%}
+  .consolidated-page #consolidated-table td::before{display:none!important;content:none!important}
+  .consolidated-page #consolidated-table .consolidated-narrative{min-width:0!important;max-width:none!important;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
 }
 
 /* Login espelhado do ProjetoAgenda */
