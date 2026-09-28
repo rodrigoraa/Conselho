@@ -76,6 +76,28 @@ final class ScheduleService
         }catch(\Throwable$exception){if($this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
     }
 
+    public function recalculateConfigured(int $eventId,int $userId,string $ip,string $userAgent):array
+    {
+        $this->schedules->db->beginTransaction();
+        try{
+            $event=$this->events->find($eventId)??throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
+            if($event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_INACTIVE','Somente eventos ativos podem ser recalculados.');
+            if(($this->schedules->obligationState($eventId)['status']??null)!=='CONFIGURADO')throw new HttpException(422,'APC_EVENT_NOT_CONFIGURED','Somente eventos configurados podem ser recalculados.');
+            $old=$this->schedules->obligations($eventId);
+            $plan=$this->snapshotPlan($event);
+            if($plan['status']!=='CONFIGURADO')throw new HttpException(422,'APC_RECALCULATE_'.$plan['status'],'Configure o dia de referência e todas as grades dos turnos ativos antes de recalcular.');
+            $this->schedules->replaceConfiguredSnapshot($eventId,$plan['rows']);
+            $requirements=$this->schedules->obligations($eventId);
+            $submissions=(new SubmissionRepository($this->schedules->db))->classKeysForEvent($eventId);
+            $obligationKeys=[];foreach($requirements as$row)$obligationKeys[(int)$row['professor_usuario_id'].'|'.(int)$row['turma_id_externo']]=true;
+            $matching=0;foreach($submissions['submission_keys']as$key)if($key!==null&&isset($obligationKeys[$key]))$matching++;
+            $completed=0;foreach($obligationKeys as$key=>$_)if(in_array($key,$submissions['submission_keys'],true))$completed++;
+            $summary=['evento_id'=>$eventId,'data'=>$event['data'],'ano'=>$event['ano_letivo'],'dia_grade'=>$plan['day'],'obrigacoes_antigas'=>count($old),'obrigacoes_novas'=>count($requirements),'professores'=>count(array_unique(array_column($requirements,'professor_usuario_id'))),'turmas'=>count(array_unique(array_column($requirements,'turma_id_externo'))),'envios_existentes'=>$submissions['count'],'envios_compativeis'=>$matching,'envios_historicos_fora_grade'=>$submissions['count']-$matching,'novas_pendencias'=>count($requirements)-$completed,'administrador_usuario_id'=>$userId];
+            $this->audit->record($userId,'RECALCULAR_EVENTO_APC_COM_GRADE','apc_evento_obrigacoes',$eventId,['obrigacoes'=>count($old)],$summary,$ip,$userAgent);
+            $this->schedules->db->commit();return$summary;
+        }catch(\Throwable$exception){if($this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
+    }
+
     private function materialize(array$event):array
     {
         $state=$this->schedules->obligationState((int)$event['id']);if($state)return['status'=>$state['status'],'requirements'=>$this->schedules->obligations((int)$event['id'])];

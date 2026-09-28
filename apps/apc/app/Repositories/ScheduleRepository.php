@@ -71,6 +71,15 @@ final class ScheduleRepository
         if($statement->rowCount()!==1)throw new \RuntimeException('O estado legado do evento mudou durante a conciliação.');
     }
 
+    public function replaceConfiguredSnapshot(int $eventId,array $rows):void
+    {
+        if(!$this->db->inTransaction())throw new \LogicException('A substituição do snapshot exige uma transação.');
+        $state=$this->obligationState($eventId);
+        if(($state['status']??null)!=='CONFIGURADO')throw new \RuntimeException('O evento deixou de estar configurado durante o recálculo.');
+        $this->db->prepare('DELETE FROM apc_evento_obrigacoes WHERE evento_id=:evento')->execute([':evento'=>$eventId]);
+        $this->saveSnapshot($eventId,$rows);
+    }
+
     public function resetSnapshot(int$eventId):void
     {
         $this->db->prepare('DELETE FROM apc_evento_obrigacoes WHERE evento_id=:evento')->execute([':evento'=>$eventId]);$this->db->prepare('DELETE FROM apc_evento_obrigacao_estados WHERE evento_id=:evento')->execute([':evento'=>$eventId]);

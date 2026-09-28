@@ -40,6 +40,14 @@ final class PortalRoutingTest extends ApcTestCase
         $_SESSION['user']=['id'=>1,'perfil'=>'ADMIN'];self::assertSame('conciliado',$router->dispatch($request)->body);
     }
 
+    public function testConfiguredRecalculationRouteRequiresAdmin():void
+    {
+        $router=new Router();$router->add('POST','/apc/admin/eventos/{id}/recalcular-grade',static fn()=>new Response('recalculado'),[new AuthMiddleware(),new RoleMiddleware(['ADMIN'])]);$request=new Request('POST','/apc/admin/eventos/15/recalcular-grade',[],[],[]);
+        unset($_SESSION['user']);self::assertSame('/login',$router->dispatch($request)->headers['Location']);
+        foreach(['PROFESSOR','COORDENADOR']as$role){$_SESSION['user']=['id'=>3,'perfil'=>$role];try{$router->dispatch($request);self::fail($role.' não pode recalcular.');}catch(\Shared\Exceptions\HttpException$exception){self::assertSame(403,$exception->status);}}
+        $_SESSION['user']=['id'=>1,'perfil'=>'ADMIN'];self::assertSame('recalculado',$router->dispatch($request)->body);
+    }
+
     public function testPortalContainsBothSystemCardsAndCouncilAliasOpensOldHandler(): void
     {
         $_SESSION['user']=['id'=>1,'nome'=>'Rodrigo Silva','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/';$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$portal=(new PortalController($view))->dashboard();self::assertStringContainsString('Conselho de Classe',$portal->body);self::assertStringContainsString('Acessar Conselho',$portal->body);self::assertStringContainsString('APCs',$portal->body);self::assertStringContainsString('Acessar APCs',$portal->body);self::assertStringContainsString('/assets/logo_escola.png',$portal->body);self::assertStringContainsString('EE São José',$portal->body);self::assertStringContainsString('Sistemas',$portal->body);

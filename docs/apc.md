@@ -54,6 +54,8 @@ A migration `009_dia_referencia_e_professor_pendente.sql` acrescenta o dia de re
 
 O snapshot é materializado na criação/importação do evento quando já existe grade completa, na confirmação de uma grade que cobre eventos existentes ou, como proteção, no primeiro cálculo seguro. Duas aulas do mesmo professor na mesma turma e dia geram uma obrigação. Ao confirmar uma nova versão, eventos cobertos só são recalculados quando o snapshot está vazio e ainda não possuem envio; a ação fica registrada como `RECALCULAR_OBRIGACOES_APC`. Eventos com envio nunca são recalculados. Obrigações já materializadas continuam no acompanhamento mesmo que o professor ou vínculo seja desativado depois, com aviso de vínculo atual alterado. Novos envios continuam exigindo professor e vínculo ativos. Data, ano e dia de referência ficam bloqueados depois que as obrigações são registradas. Em evento LEGADO sem obrigações, o ADMIN pode definir o dia de referência antes da conciliação.
 
+Para eventos ativos já `CONFIGURADO`, o ADMIN pode acionar **Recalcular com grade atual** em `/apc/admin`. A ação exige uma grade vigente cobrindo todos os turnos ativos e um dia de referência em fins de semana; valida professores e vínculos atuais e substitui somente as obrigações do evento selecionado em uma transação com auditoria. Envios, vínculos dos envios e arquivos permanecem intactos. O acompanhamento cruza as novas obrigações com os envios existentes por evento, professor e turma. A importação de outra versão da grade nunca dispara essa substituição para snapshots com obrigações. Repita a ação apenas nos eventos que a administração escolher revisar.
+
 Eventos já marcados como `LEGADO` permanecem preservados até ação explícita de um ADMIN em `/apc/admin`: **Conciliar com grade de horários**. A operação exige evento ativo, dia de referência para fins de semana e cobertura da grade para todos os turnos ativos do ano. Em uma transação, cria obrigações para professor e turma com vínculo atual válido, muda o estado para `CONFIGURADO` e registra auditoria. Os registros em `apc_envios`, `apc_envio_turmas` e os arquivos não são alterados. Envios existentes são comparados por evento, professor e turma; os compatíveis concluem obrigações, e os demais continuam no histórico. Sem grade suficiente, a operação falha sem modificar o evento. Eventos novos com grade válida são materializados mesmo que já tenham envios; snapshots configurados com obrigações não são recalculados ao importar outra grade. Não há migration para essa mudança.
 
 Se faltar versão vigente para algum turno ativo, o estado é **grade não configurada**: o backend bloqueia envio e a coordenação não calcula pendências. Se a grade estiver completa e o professor realmente não tiver aula, o painel informa que nenhum envio é necessário.
@@ -198,6 +200,7 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 /apc/admin/eventos/{id}        alteração de evento (ADMIN)
 /apc/admin/eventos/{id}/cancelar cancelamento de evento (ADMIN)
 /apc/admin/eventos/{id}/conciliar-grade conciliação transacional de evento LEGADO (ADMIN)
+/apc/admin/eventos/{id}/recalcular-grade recálculo explícito de evento CONFIGURADO (ADMIN)
 ```
 
 Rotas antigas continuam no código somente para compatibilidade com registros históricos e não aparecem no menu principal.

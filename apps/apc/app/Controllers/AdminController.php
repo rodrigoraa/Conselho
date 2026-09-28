@@ -25,6 +25,11 @@ final class AdminController
         Csrf::verify($request->body['_csrf']??null);$summary=$this->schedules->reconcileLegacy((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento conciliado com a grade: '.$summary['obrigacoes_criadas'].' obrigações; todos os envios antigos foram preservados.';return Response::redirect('/apc/admin?ano='.(int)$summary['ano'].'#calendario');
     }
 
+    public function recalculateConfigured(Request $request,array $params):Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$summary=$this->schedules->recalculateConfigured((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento recalculado com a grade atual: '.$summary['obrigacoes_novas'].' obrigações; todos os envios antigos foram preservados.';return Response::redirect('/apc/admin?ano='.(int)$summary['ano'].'#calendario');
+    }
+
     public function createEvent(Request $request): Response
     {
         Csrf::verify($request->body['_csrf']??null);$this->eventService->save(null,$request->body,(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento APC criado.';return Response::redirect('/apc/admin#calendario');
