@@ -13,6 +13,15 @@ final class SubmissionRepository
         $statement=$this->db->prepare('SELECT s.* FROM apc_envios s WHERE s.evento_id=:evento AND s.professor_usuario_id=:usuario AND (s.turma_id_externo=:turma OR (s.turma_id_externo IS NULL AND (SELECT COUNT(*) FROM apc_envio_turmas c WHERE c.envio_id=s.id)=1 AND EXISTS(SELECT 1 FROM apc_envio_turmas t WHERE t.envio_id=s.id AND t.turma_id_externo=:turma))) LIMIT 1');$statement->execute([':evento'=>$eventId,':usuario'=>$userId,':turma'=>$classId]);return$statement->fetch()?:null;
     }
 
+    public function classKeysForEvent(int $eventId):array
+    {
+        $statement=$this->db->prepare('SELECT s.id,s.professor_usuario_id,s.turma_id_externo,(SELECT COUNT(*) FROM apc_envio_turmas t WHERE t.envio_id=s.id) turma_count,(SELECT MIN(t.turma_id_externo) FROM apc_envio_turmas t WHERE t.envio_id=s.id) unica_turma FROM apc_envios s WHERE s.evento_id=:evento');
+        $statement->execute([':evento'=>$eventId]);
+        $rows=$statement->fetchAll();$submissionKeys=[];
+        foreach($rows as$row){$classId=(int)($row['turma_id_externo']??0);if($classId===0&&(int)$row['turma_count']===1)$classId=(int)$row['unica_turma'];$submissionKeys[]=$classId>0?(int)$row['professor_usuario_id'].'|'.$classId:null;}
+        return['count'=>count($rows),'submission_keys'=>$submissionKeys];
+    }
+
     public function save(?int$id,array$data):int
     {
         $parameters=[':evento'=>$data['evento_id'],':bimestre'=>$data['bimestre_id'],':usuario'=>$data['professor_usuario_id'],':professor'=>$data['professor_nome_snapshot'],':etapa'=>$data['etapa'],':serie'=>$data['ano_serie'],':turma'=>$data['turma_id_externo']??null,':original'=>$data['nome_original'],':armazenado'=>$data['nome_armazenado'],':mime'=>$data['mime_type'],':tamanho'=>$data['tamanho_bytes'],':sha'=>$data['sha256'],':caminho'=>$data['caminho_relativo']??null,':driver'=>$data['storage_driver']??'local',':file_id'=>$data['storage_file_id']??null,':folder_id'=>$data['storage_folder_id']??null,':atrasado'=>$data['atrasado'],':dias'=>$data['dias_atraso'],':enviado'=>$data['enviado_em']];

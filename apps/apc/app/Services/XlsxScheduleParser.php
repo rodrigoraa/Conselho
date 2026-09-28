@@ -45,9 +45,9 @@ final class XlsxScheduleParser
         $rows=[];$errors=[];$seen=[];$class='';$columns=[];$classColumn=null;$lessonColumn=null;$recognized=false;
         foreach($matrix as$line){$cells=$line['cells'];$number=$line['row'];$filled=array_filter($cells,static fn($value):bool=>trim((string)$value)!=='');if(!$filled)continue;
             if(count($filled)===1){$single=trim((string)reset($filled));if(preg_match('/(?:ENSINO\s+FUNDAMENTAL|ENSINO\s+M[ÉE]DIO)/iu',$single)&&preg_match('/\d/u',$single)){$class=$single;$columns=[];$classColumn=null;$lessonColumn=null;continue;}}
-            $found=[];$candidateClass=null;$candidateLesson=null;
-            foreach($cells as$column=>$value){$name=$this->normalize((string)$value);if(isset(self::DAYS[$name]))$found[self::DAYS[$name]]=$column;elseif(in_array($name,['TURMA','CLASSE'],true))$candidateClass=$column;elseif(in_array($name,['AULA','HORARIO','ORDEM','NUMEROAULA'],true))$candidateLesson=$column;}
-            if($found&&($class!==''||$candidateLesson!==null)){$columns=$found;$classColumn=$candidateClass;$lessonColumn=$candidateLesson??max(0,min($found)-1);$recognized=true;continue;}
+            $found=[];$candidateClass=null;$candidateLesson=null;$unknown=[];
+            foreach($cells as$column=>$value){$original=trim((string)$value);if($original==='')continue;$name=$this->normalize($original);if(isset(self::DAYS[$name]))$found[self::DAYS[$name]]=$column;elseif(in_array($name,['TURMA','CLASSE'],true))$candidateClass=$column;elseif(in_array($name,['AULA','HORARIO','ORDEM','NUMEROAULA'],true))$candidateLesson=$column;else$unknown[]=$original;}
+            if($found&&($class!==''||$candidateLesson!==null||$candidateClass!==null)){foreach($unknown as$value)$errors[]=['sheet'=>$sheet,'class'=>$class,'row'=>$number,'day'=>'','lesson'=>'','value'=>$value,'reason'=>'coluna ou dia da semana não reconhecido no cabeçalho'];$columns=$found;$classColumn=$candidateClass;$lessonColumn=$candidateLesson??max(0,min($found)-1);$recognized=true;continue;}
             if(!$columns)continue;
             $label=trim((string)($cells[$lessonColumn]??''));if($label==='')continue;
             if(!preg_match('/^\s*(\d+)\s*(?:[ªº°])?\s*(?:AULA)?\s*$/iu',$label,$match))continue;

@@ -32,6 +32,14 @@ final class PortalRoutingTest extends ApcTestCase
         $_SESSION['user']=['id'=>1,'nome'=>'Admin','perfil'=>'ADMIN'];$response=$middleware(new Request('GET','/apc/admin/horarios',[],[],[]),static fn()=>new Response('ok'));self::assertSame('ok',$response->body);
     }
 
+    public function testLegacyReconciliationRouteRequiresAdmin():void
+    {
+        $router=new Router();$router->add('POST','/apc/admin/eventos/{id}/conciliar-grade',static fn()=>new Response('conciliado'),[new AuthMiddleware(),new RoleMiddleware(['ADMIN'])]);
+        unset($_SESSION['user']);$request=new Request('POST','/apc/admin/eventos/15/conciliar-grade',[],[],[]);self::assertSame('/login',$router->dispatch($request)->headers['Location']);
+        $_SESSION['user']=['id'=>3,'perfil'=>'PROFESSOR'];try{$router->dispatch($request);self::fail('Professor não pode conciliar.');}catch(\Shared\Exceptions\HttpException$exception){self::assertSame(403,$exception->status);}
+        $_SESSION['user']=['id'=>1,'perfil'=>'ADMIN'];self::assertSame('conciliado',$router->dispatch($request)->body);
+    }
+
     public function testPortalContainsBothSystemCardsAndCouncilAliasOpensOldHandler(): void
     {
         $_SESSION['user']=['id'=>1,'nome'=>'Rodrigo Silva','perfil'=>'ADMIN'];$_SERVER['REQUEST_URI']='/';$view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');$portal=(new PortalController($view))->dashboard();self::assertStringContainsString('Conselho de Classe',$portal->body);self::assertStringContainsString('Acessar Conselho',$portal->body);self::assertStringContainsString('APCs',$portal->body);self::assertStringContainsString('Acessar APCs',$portal->body);self::assertStringContainsString('/assets/logo_escola.png',$portal->body);self::assertStringContainsString('EE São José',$portal->body);self::assertStringContainsString('Sistemas',$portal->body);

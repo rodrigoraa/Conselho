@@ -2,7 +2,7 @@
 
 namespace Apc\Services;
 
-use Apc\Repositories\{AccessRepository,AuditRepository,EventRepository,ScheduleRepository};
+use Apc\Repositories\{AccessRepository,AuditRepository,EventRepository,ScheduleRepository,SubmissionRepository};
 use Apc\Storage\UploadPreparer;
 use Shared\Exceptions\HttpException;
 
@@ -55,13 +55,39 @@ final class ScheduleService
         $this->schedules->db->beginTransaction();try{$this->schedules->deactivate($id,$userId);$this->audit->record($userId,'DESATIVAR_HORARIO_APC','apc_horario_importacoes',$id,null,['status'=>'DESATIVADO'],$ip,$userAgent);$this->schedules->db->commit();}catch(\Throwable$exception){if($this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
     }
 
+    public function reconcileLegacy(int $eventId,int $userId,string $ip,string $userAgent):array
+    {
+        $this->schedules->db->beginTransaction();
+        try{
+            $event=$this->events->find($eventId)??throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
+            if($event['status']!=='ATIVO')throw new HttpException(422,'APC_EVENT_INACTIVE','Somente eventos ativos podem ser conciliados.');
+            $state=$this->schedules->obligationState($eventId);
+            if(($state['status']??null)!=='LEGADO')throw new HttpException(422,'APC_EVENT_NOT_LEGACY','O evento não está em estado legado.');
+            if($this->schedules->obligations($eventId))throw new HttpException(422,'APC_LEGACY_HAS_OBLIGATIONS','O evento legado já possui obrigações; confira o estado antes de conciliar.');
+            $plan=$this->snapshotPlan($event);
+            if($plan['status']!=='CONFIGURADO')throw new HttpException(422,'APC_RECONCILE_'.$plan['status'],'Configure o dia de referência e todas as grades dos turnos ativos antes de conciliar.');
+            $this->schedules->configureLegacy($eventId,$plan['rows']);
+            $requirements=$this->schedules->obligations($eventId);
+            $submissions=(new SubmissionRepository($this->schedules->db))->classKeysForEvent($eventId);
+            $obligationKeys=[];foreach($requirements as$row)$obligationKeys[(int)$row['professor_usuario_id'].'|'.(int)$row['turma_id_externo']]=true;$matching=0;foreach($submissions['submission_keys']as$key)if($key!==null&&isset($obligationKeys[$key]))$matching++;
+            $summary=['evento_id'=>$eventId,'data'=>$event['data'],'ano'=>$event['ano_letivo'],'dia_grade'=>$plan['day'],'obrigacoes_criadas'=>count($requirements),'professores'=>count(array_unique(array_column($requirements,'professor_usuario_id'))),'turmas'=>count(array_unique(array_column($requirements,'turma_id_externo'))),'envios_existentes'=>$submissions['count'],'envios_compativeis'=>$matching,'envios_historicos_fora_grade'=>$submissions['count']-$matching,'administrador_usuario_id'=>$userId];
+            $this->audit->record($userId,'CONCILIAR_EVENTO_APC_COM_GRADE','apc_evento_obrigacao_estados',$eventId,$state,$summary,$ip,$userAgent);
+            $this->schedules->db->commit();return$summary;
+        }catch(\Throwable$exception){if($this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
+    }
+
     private function materialize(array$event):array
     {
         $state=$this->schedules->obligationState((int)$event['id']);if($state)return['status'=>$state['status'],'requirements'=>$this->schedules->obligations((int)$event['id'])];
-        $submission=$this->schedules->db->prepare('SELECT 1 FROM apc_envios WHERE evento_id=:evento LIMIT 1');$submission->execute([':evento'=>$event['id']]);if($submission->fetchColumn()){$this->schedules->saveSnapshot((int)$event['id'],[],'LEGADO','Evento anterior com envios preservados.');return['status'=>'LEGADO','requirements'=>[]];}
-        $weekday=(int)(new \DateTimeImmutable((string)$event['data'],new \DateTimeZone('UTC')))->format('N');$reference=$event['dia_grade_referencia']??null;if($weekday>5&&$reference===null)return['status'=>'DIA_REFERENCIA_NAO_CONFIGURADO','requirements'=>[]];
-        $needed=$this->access->activeShiftsForYear((int)$event['ano_letivo']);$covering=$this->schedules->coveringImports((int)$event['ano_letivo'],(string)$event['data']);$covered=array_values(array_unique(array_column($covering,'turno')));if(!$needed)$needed=$covered;if(!$needed||array_diff($needed,$covered))return['status'=>'NAO_CONFIGURADA','requirements'=>[],'missing_shifts'=>array_values(array_diff($needed,$covered))];
-        $day=$reference===null?$weekday:(int)$reference;$rows=$this->schedules->rowsForEvent((int)$event['ano_letivo'],(string)$event['data'],$day);$valid=[];foreach($rows as$row)if($this->access->isActiveTeacher((int)$row['professor_usuario_id'])&&$this->access->hasActiveClassBinding((int)$row['professor_usuario_id'],(int)$row['turma_id_externo'],(int)$event['ano_letivo'],(string)$row['turno']))$valid[]=$row;$this->schedules->saveSnapshot((int)$event['id'],$valid);return['status'=>'CONFIGURADO','requirements'=>$this->schedules->obligations((int)$event['id'])];
+        $plan=$this->snapshotPlan($event);if($plan['status']!=='CONFIGURADO')return['status'=>$plan['status'],'requirements'=>[],'missing_shifts'=>$plan['missing_shifts']??[]];
+        $this->schedules->saveSnapshot((int)$event['id'],$plan['rows']);return['status'=>'CONFIGURADO','requirements'=>$this->schedules->obligations((int)$event['id'])];
+    }
+
+    private function snapshotPlan(array $event):array
+    {
+        $weekday=(int)(new \DateTimeImmutable((string)$event['data'],new \DateTimeZone('UTC')))->format('N');$reference=$event['dia_grade_referencia']??null;if($weekday>5&&$reference===null)return['status'=>'DIA_REFERENCIA_NAO_CONFIGURADO'];
+        $needed=$this->access->activeShiftsForYear((int)$event['ano_letivo']);$covering=$this->schedules->coveringImports((int)$event['ano_letivo'],(string)$event['data']);$covered=array_values(array_unique(array_column($covering,'turno')));if(!$needed)$needed=$covered;if(!$needed||array_diff($needed,$covered))return['status'=>'NAO_CONFIGURADA','missing_shifts'=>array_values(array_diff($needed,$covered))];
+        $day=$weekday<=5?$weekday:(int)$reference;$rows=$this->schedules->rowsForEvent((int)$event['ano_letivo'],(string)$event['data'],$day);$valid=[];foreach($rows as$row)if($this->access->isActiveTeacher((int)$row['professor_usuario_id'])&&$this->access->hasActiveClassBinding((int)$row['professor_usuario_id'],(int)$row['turma_id_externo'],(int)$event['ano_letivo'],(string)$row['turno']))$valid[]=$row;return['status'=>'CONFIGURADO','day'=>$day,'rows'=>$valid];
     }
 
     private function matchNames(array$names,array$candidates):array
@@ -69,7 +95,7 @@ final class ScheduleService
         $indexed=[];foreach($candidates as$candidate)$indexed[$this->parser->normalize((string)$candidate['nome'])][]=$candidate;$result=[];foreach($names as$name){$key=$this->parser->normalize((string)$name);$exact=$indexed[$key]??[];if(count($exact)===1){$result[$key]=['status'=>'safe','id'=>(int)$exact[0]['id'],'name'=>(string)$exact[0]['nome'],'suggestions'=>[]];continue;}if(count($exact)>1){$result[$key]=['status'=>'ambiguous','id'=>null,'name'=>null,'suggestions'=>$exact];continue;}$scores=[];foreach($candidates as$candidate){$candidateKey=$this->parser->normalize((string)$candidate['nome']);$distance=levenshtein($key,$candidateKey);if($distance<=max(2,(int)floor(max(strlen($key),1)*.2)))$scores[]=$candidate+['distance'=>$distance];}usort($scores,static fn($a,$b)=>$a['distance']<=>$b['distance']);$result[$key]=['status'=>$scores?'unmatched':'not_found','id'=>null,'name'=>null,'suggestions'=>array_slice($scores,0,3)];}return$result;
     }
 
-    private function canRecalculate(int$eventId):bool{$state=$this->schedules->obligationState($eventId);if($state===null||$state['status']==='LEGADO')return false;$statement=$this->schedules->db->prepare('SELECT 1 FROM apc_envios WHERE evento_id=:evento LIMIT 1');$statement->execute([':evento'=>$eventId]);if($statement->fetchColumn())return false;$event=$this->events->find($eventId);if($event===null)return false;foreach($this->schedules->obligations($eventId)as$obligation)if(!$this->access->isActiveTeacher((int)$obligation['professor_usuario_id'])||!$this->access->hasActiveClassBinding((int)$obligation['professor_usuario_id'],(int)$obligation['turma_id_externo'],(int)$event['ano_letivo'],(string)$obligation['turno']))return false;return true;}
+    private function canRecalculate(int$eventId):bool{$state=$this->schedules->obligationState($eventId);if($state===null||$state['status']==='LEGADO'||$this->schedules->obligations($eventId))return false;$statement=$this->schedules->db->prepare('SELECT 1 FROM apc_envios WHERE evento_id=:evento LIMIT 1');$statement->execute([':evento'=>$eventId]);return !$statement->fetchColumn();}
 
     private function date(mixed$value,string$label):string{$value=trim((string)$value);$date=\DateTimeImmutable::createFromFormat('!Y-m-d',$value);if(!$date||$date->format('Y-m-d')!==$value)throw new HttpException(422,'APC_SCHEDULE_DATE',$label.' inválido.');return$value;}
 }

@@ -67,6 +67,7 @@ try{
  $r->add('POST','/apc/admin/eventos/{id}',fn($q,$p)=>$apcModule()->admin->updateEvent($q,$p),$admin);
  $r->add('POST','/apc/admin/eventos/{id}/cancelar',fn($q,$p)=>$apcModule()->admin->cancelEvent($q,$p),$admin);
  $r->add('POST','/apc/admin/eventos/{id}/reativar',fn($q,$p)=>$apcModule()->admin->reactivateEvent($q,$p),$admin);
+ $r->add('POST','/apc/admin/eventos/{id}/conciliar-grade',fn($q,$p)=>$apcModule()->admin->reconcileLegacy($q,$p),$admin);
  $r->add('POST','/apc/admin/parametros',fn($q)=>$apcModule()->admin->updateSettings($q),$admin);
  $r->dispatch($request)->send();
 }catch(HttpException$e){if(str_starts_with((string)(parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)??''),'/internal/collaboration/'))Response::json(['success'=>false,'error'=>$e->errorCode,'message'=>$e->getMessage()],$e->status)->send();http_response_code($e->status);$title=$e->status.' — Erro';$message=$e->getMessage();$back='/';require dirname(__DIR__).'/resources/views/error.php';}catch(Throwable$e){error_log($e::class.': '.$e->getMessage());if(str_starts_with((string)(parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)??''),'/internal/collaboration/'))Response::json(['success'=>false,'error'=>'INTERNAL_ERROR','message'=>Env::bool('APP_DEBUG')?$e->getMessage():'Falha interna no serviço de colaboração.'],500)->send();http_response_code(500);$title='500 — Erro';$message=Env::bool('APP_DEBUG')?$e->getMessage():'Não foi possível concluir a operação.';$back='/';require dirname(__DIR__).'/resources/views/error.php';}

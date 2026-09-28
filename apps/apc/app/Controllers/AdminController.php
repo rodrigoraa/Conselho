@@ -2,8 +2,8 @@
 
 namespace Apc\Controllers;
 
-use Apc\Repositories\{AuditRepository,EventRepository,SettingsRepository};
-use Apc\Services\{CalendarImporter,CalendarPdfExtractor,EventService,SettingsService};
+use Apc\Repositories\{AuditRepository,EventRepository,ScheduleRepository,SettingsRepository};
+use Apc\Services\{CalendarImporter,CalendarPdfExtractor,EventService,ScheduleService,SettingsService};
 use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
 use Shared\Http\{Request,Response};
@@ -13,11 +13,16 @@ final class AdminController
 {
     private const CALENDAR_ANALYSIS_SESSION='apc_calendar_analysis';
 
-    public function __construct(private readonly EventRepository $events,private readonly SettingsRepository $settings,private readonly AuditRepository $audit,private readonly EventService $eventService,private readonly SettingsService $settingsService,private readonly CalendarImporter $calendarImporter,private readonly CalendarPdfExtractor $calendarPdf,private readonly View $view) {}
+    public function __construct(private readonly EventRepository $events,private readonly SettingsRepository $settings,private readonly AuditRepository $audit,private readonly EventService $eventService,private readonly SettingsService $settingsService,private readonly CalendarImporter $calendarImporter,private readonly CalendarPdfExtractor $calendarPdf,private readonly View $view,private readonly ScheduleService $schedules,private readonly ScheduleRepository $scheduleRepository) {}
 
     public function index(Request $request): Response
     {
-        $year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>2000,'max_range'=>2100]]);$events=$this->events->all($year===false?null:(int)$year,true);$settings=$this->settings->all();$audit=$this->audit->recent();return new Response($this->view->render('admin',compact('events','settings','audit','year')+['title'=>'Administração APC']));
+        $year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>2000,'max_range'=>2100]]);$events=$this->events->all($year===false?null:(int)$year,true);foreach($events as &$event)$event['obligation_status']=$this->scheduleRepository->obligationState((int)$event['id'])['status']??null;unset($event);$settings=$this->settings->all();$audit=$this->audit->recent();return new Response($this->view->render('admin',compact('events','settings','audit','year')+['title'=>'Administração APC']));
+    }
+
+    public function reconcileLegacy(Request $request,array $params):Response
+    {
+        Csrf::verify($request->body['_csrf']??null);$summary=$this->schedules->reconcileLegacy((int)$params['id'],(int)$_SESSION['user']['id'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Evento conciliado com a grade: '.$summary['obrigacoes_criadas'].' obrigações; todos os envios antigos foram preservados.';return Response::redirect('/apc/admin?ano='.(int)$summary['ano'].'#calendario');
     }
 
     public function createEvent(Request $request): Response

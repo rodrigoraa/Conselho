@@ -63,6 +63,14 @@ final class ScheduleRepository
         $state=$this->db->prepare('INSERT OR IGNORE INTO apc_evento_obrigacao_estados(evento_id,status,motivo)VALUES(:evento,:status,:motivo)');$state->execute([':evento'=>$eventId,':status'=>$status,':motivo'=>$reason]);
     }
 
+    public function configureLegacy(int $eventId,array $rows):void
+    {
+        $this->saveSnapshot($eventId,$rows);
+        $statement=$this->db->prepare("UPDATE apc_evento_obrigacao_estados SET status='CONFIGURADO',motivo=NULL WHERE evento_id=:evento AND status='LEGADO'");
+        $statement->execute([':evento'=>$eventId]);
+        if($statement->rowCount()!==1)throw new \RuntimeException('O estado legado do evento mudou durante a conciliação.');
+    }
+
     public function resetSnapshot(int$eventId):void
     {
         $this->db->prepare('DELETE FROM apc_evento_obrigacoes WHERE evento_id=:evento')->execute([':evento'=>$eventId]);$this->db->prepare('DELETE FROM apc_evento_obrigacao_estados WHERE evento_id=:evento')->execute([':evento'=>$eventId]);
