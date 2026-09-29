@@ -3,7 +3,7 @@ use PreConselho\Support\Csrf;
 use PreConselho\Support\CollaborationToken;
 use Shared\Env;
 
-$periodData=$document['period'];$classes=$document['classes'];$conclusions=$document['conclusoes'];$opening=$document['opening'];
+$periodData=$document['period'];$classes=$document['classes'];$conclusions=$document['conclusoes'];$opening=$document['opening'];$documentTitle=$document['title'];$defaultDocumentTitle=$document['defaultTitle'];
 $currentRole=(string)($_SESSION['user']['perfil']??'');
 $isTeacher=$currentRole==='PROFESSOR';
 $canWrite=$periodData['status']==='ABERTO';
@@ -61,6 +61,7 @@ ob_start();
 <?php endif;?>
 
 <section class="card council-opening-section"><div class="section-heading"><div><p class="eyebrow">Abertura da ata</p><h2>Introdução do documento final</h2><p>Este trecho aparece antes dos relatos das turmas e só pode ser alterado pela coordenação ou administração.</p></div><span class="badge <?=$canEditOpening?'status-enviado':'status-pendente'?>"><?=$canEditOpening?'Edição autorizada':'Somente leitura'?></span></div>
+<?php if($canEditOpening):?><label class="document-title-field">Título da ata<input type="text" maxlength="300" value="<?=e($documentTitle)?>" data-document-title data-default-title="<?=e($defaultDocumentTitle)?>" data-title-version="<?=e($opening['titulo_versao'])?>" data-title-autosave-url="/documentos/<?=e($period)?>/titulo/autosave"></label><small class="autosave-status" data-title-save-status aria-live="polite">Salvamento automático ativado para o título.</small><?php else:?><p><strong>Título da ata</strong></p><div class="opening-readonly" data-title-readonly><?=e($documentTitle)?></div><?php endif;?>
 <?php if($canEditOpening):?><label><span class="sr-only">Texto de abertura da ata</span><textarea rows="8" maxlength="12000" data-opening-content data-version="<?=e($opening['versao'])?>" data-autosave-url="/documentos/<?=e($period)?>/abertura/autosave"><?=e($openingText)?></textarea></label><input type="hidden" value="<?=e(Csrf::token())?>" data-opening-csrf><small class="autosave-status" data-opening-save-status aria-live="polite">Salvamento automático ativado para a abertura.</small><?php else:?><div class="opening-readonly" data-opening-readonly data-opening-empty="<?=$openingText===''?'1':'0'?>"><?=nl2br(e($openingText?:'A abertura ainda não foi preenchida pela coordenação.'))?></div><?php endif;?>
 <?php if($opening['atualizado_por_nome']):?><small class="shared-last-update">Última atualização: <?=e($opening['atualizado_por_nome'])?> em <?=e(date('d/m/Y H:i',strtotime($opening['atualizado_em'])))?></small><?php endif;?></section>
 
@@ -97,7 +98,7 @@ ob_start();
     <footer class="paper-signatures"><p><span></span>Coordenação pedagógica</p><p><span></span>Gestão escolar</p></footer>
 </article>
 <article class="paper-document final-document-preview" data-document-final hidden>
-    <header class="paper-header"><p><?=e($schoolAuthority)?></p><p><?=e($schoolName)?></p><p><?=e($shiftLabel)?></p><h2>Ata de Reunião do Conselho de Classe · <?=e($periodData['nome'])?> de <?=e($periodData['ano_letivo'])?></h2></header>
+    <header class="paper-header"><p><?=e($schoolAuthority)?></p><p><?=e($schoolName)?></p><p><?=e($shiftLabel)?></p><h2 data-final-document-title><?=e($documentTitle)?></h2></header>
     <p class="final-council-text" data-final-narrative><?=$finalText!==''?e($finalText):'O documento ainda não possui texto.'?></p>
     <footer class="paper-signatures"><p><span></span>Coordenação pedagógica</p><p><span></span>Gestão escolar</p></footer>
 </article>

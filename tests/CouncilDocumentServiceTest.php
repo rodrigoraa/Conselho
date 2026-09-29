@@ -6,7 +6,11 @@ use PDO;
 use PHPUnit\Framework\TestCase;
 use PreConselho\Repositories\AppRepository;
 use PreConselho\Services\CouncilDocumentService;
+use PreConselho\Controllers\WebController;
+use PreConselho\Integration\SecretariaApiClient;
+use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
+use Shared\Http\Request;
 use Shared\Support\View;
 
 final class CouncilDocumentServiceTest extends TestCase
@@ -57,6 +61,75 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame('Abertura definida pela coordenação.',(string)$this->db->query('SELECT texto FROM documento_aberturas WHERE periodo_id=1')->fetchColumn());
         try{$this->service->saveOpening(1,'Tentativa do professor.',2,2,'PROFESSOR');self::fail('O professor não deveria editar a abertura.');}
         catch(HttpException$exception){self::assertSame(403,$exception->status);}
+    }
+
+    public function testTituloPadraoPermissoesEVersoesIndependentesDaAbertura(): void
+    {
+        $document=$this->service->document(1,1,'COORDENADOR');
+        $default='Ata de Reunião do Conselho de Classe · 3º Bimestre de 2026';
+        self::assertSame($default,$document['title']);
+        self::assertNull($document['opening']['titulo']);
+        $openingText=$document['opening']['texto'];
+        $saved=$this->service->saveTitle(1,'  Ata especial de 2026  ',1,1,'COORDENADOR');
+        self::assertSame(2,$saved['version']);self::assertSame('Ata especial de 2026',$saved['title']);
+        self::assertSame('Ata especial de 2026',$this->service->document(1,2,'PROFESSOR')['title']);
+        self::assertSame(1,(int)$this->db->query('SELECT versao FROM documento_aberturas WHERE periodo_id=1')->fetchColumn());
+        self::assertSame($openingText,(string)$this->db->query('SELECT texto FROM documento_aberturas WHERE periodo_id=1')->fetchColumn());
+        try{$this->service->saveTitle(1,'Título antigo',1,4,'ADMIN');self::fail('A versão anterior deveria causar conflito.');}
+        catch(HttpException$exception){self::assertSame(409,$exception->status);self::assertSame('VERSION_CONFLICT',$exception->errorCode);}
+        $openingSaved=$this->service->saveOpening(1,'Abertura independente.',1,1,'COORDENADOR');
+        self::assertSame(2,$openingSaved['version']);
+        $adminSaved=$this->service->saveTitle(1,'Título do administrador',2,4,'ADMIN');
+        self::assertSame(3,$adminSaved['version']);
+        self::assertSame(2,(int)$this->db->query('SELECT versao FROM documento_aberturas WHERE periodo_id=1')->fetchColumn());
+        try{$this->service->saveTitle(1,'Professor não pode',3,2,'PROFESSOR');self::fail('Professor não pode editar o título.');}
+        catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        try{$this->service->saveTitle(1,str_repeat('A',301),3,1,'COORDENADOR');self::fail('Título grande demais deveria falhar.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);self::assertSame('TITLE_TOO_LONG',$exception->errorCode);}
+        $reset=$this->service->saveTitle(1,'',3,1,'COORDENADOR');
+        self::assertSame($default,$reset['title']);
+        self::assertNull($this->db->query('SELECT titulo FROM documento_aberturas WHERE periodo_id=1')->fetchColumn());
+        $this->db->exec("UPDATE documento_aberturas SET titulo='' WHERE periodo_id=1");
+        self::assertSame($default,$this->service->document(1,1,'COORDENADOR')['title']);
+    }
+
+    public function testTituloNaoPodeSerEditadoComPeriodoFechado(): void
+    {
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
+        try{$this->service->saveTitle(1,'Título fechado',1,1,'COORDENADOR');self::fail('Período fechado deveria bloquear edição.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);self::assertSame('DOCUMENT_LOCKED',$exception->errorCode);}
+    }
+
+    public function testTituloPersonalizadoApareceNaAtaFinalSemCampoEditavelParaProfessor(): void
+    {
+        $title='Ata do Conselho de Classe do 3º Bimestre – Ano Letivo 2026';
+        $this->service->saveTitle(1,$title,1,1,'COORDENADOR');
+        $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+        $_SERVER['REQUEST_URI']='/documentos/1';
+        $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
+        $coord=$view->render('document',['document'=>$this->service->document(1,1,'COORDENADOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringContainsString('data-document-title',$coord);
+        self::assertStringContainsString('data-title-version="2"',$coord);
+        self::assertStringContainsString('<h2 data-final-document-title>'.$title.'</h2>',$coord);
+        self::assertStringContainsString('data-document-final hidden',$coord);
+        self::assertStringContainsString('.final-document-preview,.final-document-preview[hidden]{display:block!important}',(string)file_get_contents(dirname(__DIR__).'/apps/preconselho-web/public/assets/app.css'));
+        $_SESSION['user']=['id'=>2,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];
+        $teacher=$view->render('document',['document'=>$this->service->document(1,2,'PROFESSOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('data-document-title',$teacher);
+        self::assertStringContainsString('data-title-readonly',$teacher);
+        self::assertStringContainsString('<h2 data-final-document-title>'.$title.'</h2>',$teacher);
+    }
+
+    public function testAutosaveTitleControllerValidaCsrfERetornaVersao(): void
+    {
+        $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
+        $controller=new WebController(new AppRepository($this->db),new View(dirname(__DIR__).'/apps/preconselho-web/resources/views'),new SecretariaApiClient());
+        $csrf=Csrf::token();
+        try{$controller->autosaveTitle(new Request('POST','/documentos/1/titulo/autosave',[],['_csrf'=>'inválido','titulo'=>'Ata','versao'=>1],[]),['periodo'=>1]);self::fail('CSRF inválido deveria ser recusado.');}
+        catch(HttpException$exception){self::assertSame(419,$exception->status);}
+        $response=$controller->autosaveTitle(new Request('POST','/documentos/1/titulo/autosave',[],['_csrf'=>$csrf,'titulo'=>'Ata salva','versao'=>1],[]),['periodo'=>1]);
+        $saved=json_decode($response->body,true,512,JSON_THROW_ON_ERROR);
+        self::assertTrue($saved['success']);self::assertSame(2,$saved['version']);self::assertSame('Ata salva',$saved['title']);self::assertSame('Coordenação',$saved['updated_by']);
     }
 
     public function testSegundoProfessorInsereNoMeioDoMesmoTextoLivreDaTurma(): void

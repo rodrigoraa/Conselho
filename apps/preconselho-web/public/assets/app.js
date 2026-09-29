@@ -270,11 +270,49 @@ const collectiveDocument=document.querySelector('[data-collective-document]');
 if(collectiveDocument){
   const classSections=[...collectiveDocument.querySelectorAll('[data-collective-class]')];
   let hasUnsavedChanges=false;
-  const refreshUnsavedState=()=>{hasUnsavedChanges=document.querySelector('[data-opening-content][data-dirty="1"], [data-shared-content][data-dirty="1"]')!==null};
+  const refreshUnsavedState=()=>{hasUnsavedChanges=document.querySelector('[data-document-title][data-dirty="1"], [data-opening-content][data-dirty="1"], [data-shared-content][data-dirty="1"]')!==null};
   const finalOutput=collectiveDocument.querySelector('[data-final-narrative]');
   const contributionText=element=>(element instanceof HTMLTextAreaElement?element.value:element.textContent||'').trim();
   const rebuildFinalNarrative=()=>{const openingField=document.querySelector('[data-opening-content]');const openingReadonly=document.querySelector('[data-opening-readonly]');const opening=openingField?.value.trim()||(openingReadonly?.dataset.openingEmpty==='1'?'':openingReadonly?.textContent.trim())||'';const parts=opening?[opening]:[];classSections.forEach(section=>{const editable=section.querySelector('[data-shared-content]');const readonly=section.querySelector('[data-class-readonly]');const classText=contributionText(editable||readonly);if(classText&&!(!editable&&classText==='Nenhum professor escreveu nesta turma até o momento.'))parts.push(classText)});if(finalOutput)finalOutput.textContent=parts.join(' ')||'O documento ainda não possui texto.'};
   document.querySelectorAll('[data-document-view]').forEach(button=>button.addEventListener('click',()=>{const final=button.dataset.documentView==='final';collectiveDocument.querySelector('[data-document-editor]').hidden=final;collectiveDocument.querySelector('[data-document-final]').hidden=!final;document.querySelectorAll('[data-document-view]').forEach(item=>{item.classList.toggle('primary',item===button);item.setAttribute('aria-pressed',String(item===button))});if(final)rebuildFinalNarrative()}));
+  const titleField=document.querySelector('[data-document-title]');
+  if(titleField){
+    const titleStatus=document.querySelector('[data-title-save-status]');
+    const titleOutput=collectiveDocument.querySelector('[data-final-document-title]');
+    const titleCsrf=document.querySelector('[data-opening-csrf]')?.value||'';
+    let lastSavedTitle=titleField.value,titleDirty=false,titleTimer=null,titleInFlight=null,titleInFlightValue=null,titleConflict=false,titleSaveUncertain=false;
+    const refreshTitleDirty=()=>{titleDirty=titleField.value!==lastSavedTitle||(titleInFlightValue!==null&&titleField.value!==titleInFlightValue)||titleSaveUncertain;titleField.dataset.dirty=titleDirty?'1':'0';refreshUnsavedState()};
+    const showTitle=()=>{if(titleOutput)titleOutput.textContent=titleField.value.trim()||titleField.dataset.defaultTitle||''};
+    const saveTitle=()=>{
+      if(titleInFlight)return titleInFlight;
+      if(!titleDirty||titleConflict)return Promise.resolve(!titleDirty);
+      const sentTitle=titleField.value;
+      titleInFlightValue=sentTitle;
+      if(titleStatus)titleStatus.textContent='Salvando título…';
+      const body=new FormData();body.append('_csrf',titleCsrf);body.append('titulo',sentTitle);body.append('versao',titleField.dataset.titleVersion||'0');
+      titleInFlight=fetch(titleField.dataset.titleAutosaveUrl,{method:'POST',body,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(async response=>{if(!response.ok){if(response.status===409)throw new Error('conflict');throw new Error('save')}return response.json()}).then(data=>{
+        titleField.dataset.titleVersion=String(data.version);
+        lastSavedTitle=sentTitle;
+        if(titleField.value===sentTitle){titleField.value=data.title;lastSavedTitle=data.title}
+        titleInFlightValue=null;titleSaveUncertain=false;
+        refreshTitleDirty();showTitle();
+        if(titleStatus)titleStatus.textContent=`✓ Título salvo às ${data.saved_at}.`;
+        return true;
+      }).catch(error=>{
+        titleConflict=error.message==='conflict';titleInFlightValue=null;titleSaveUncertain=true;refreshTitleDirty();
+        if(titleStatus)titleStatus.textContent=titleConflict?'O título foi alterado em outra sessão. Recarregue a página.':'Não foi possível salvar o título.';
+        return false;
+      }).finally(()=>{titleInFlight=null;if(titleDirty&&!titleConflict&&titleField.value!==sentTitle)void saveTitle()});
+      return titleInFlight;
+    };
+    titleField.addEventListener('input',()=>{
+      if(titleTimer)clearTimeout(titleTimer);
+      refreshTitleDirty();showTitle();
+      if(!titleDirty){if(titleStatus)titleStatus.textContent='Título sem alterações pendentes.';return}
+      if(titleStatus)titleStatus.textContent=titleConflict?'O título foi alterado em outra sessão. Recarregue a página.':'Alterações aguardando salvamento…';
+      if(!titleConflict)titleTimer=setTimeout(saveTitle,1200);
+    });
+  }
   const openingField=document.querySelector('[data-opening-content]');
   if(openingField){const openingStatus=document.querySelector('[data-opening-save-status]');const openingCsrf=document.querySelector('[data-opening-csrf]')?.value||'';let openingTimer=null,openingInFlight=null,openingDirty=false;const saveOpening=()=>{if(openingInFlight)return openingInFlight.then(saved=>openingDirty?saveOpening():saved);if(!openingDirty)return Promise.resolve(true);openingDirty=false;if(openingStatus)openingStatus.textContent='Salvando abertura…';const body=new FormData();body.append('_csrf',openingCsrf);body.append('texto',openingField.value);body.append('versao',openingField.dataset.version||'0');openingInFlight=fetch(openingField.dataset.autosaveUrl,{method:'POST',body,headers:{'X-Requested-With':'XMLHttpRequest'}}).then(async response=>{if(!response.ok){if(response.status===409)throw new Error('conflict');throw new Error('save')}return response.json()}).then(data=>{openingField.dataset.version=String(data.version);if(!openingDirty)openingField.dataset.dirty='0';refreshUnsavedState();if(openingStatus)openingStatus.textContent=`✓ Abertura salva às ${data.saved_at}.`;return true}).catch(error=>{openingDirty=true;openingField.dataset.dirty='1';refreshUnsavedState();if(openingStatus)openingStatus.textContent=error.message==='conflict'?'A abertura foi alterada em outra sessão. Recarregue a página.':'Não foi possível salvar a abertura.';return false}).finally(()=>{openingInFlight=null});return openingInFlight};openingField.addEventListener('input',()=>{openingDirty=true;openingField.dataset.dirty='1';refreshUnsavedState();rebuildFinalNarrative();if(openingStatus)openingStatus.textContent='Alterações aguardando salvamento…';if(openingTimer)clearTimeout(openingTimer);openingTimer=setTimeout(saveOpening,1200)})}
   const applyClassFilter=mode=>{classSections.forEach(section=>section.hidden=mode==='mine'&&section.dataset.mine!=='1');document.querySelectorAll('[data-class-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.classFilter===mode)))};

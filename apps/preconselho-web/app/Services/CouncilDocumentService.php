@@ -14,6 +14,11 @@ final class CouncilDocumentService
 
     public function __construct(private readonly AppRepository $repository) {}
 
+    public static function defaultDocumentTitle(array $period): string
+    {
+        return 'Ata de Reunião do Conselho de Classe · '.$period['nome'].' de '.$period['ano_letivo'];
+    }
+
     public function synchronizePeriod(int $periodId): void
     {
         $period=$this->period($periodId);
@@ -66,8 +71,11 @@ final class CouncilDocumentService
         $byClass=[];
         foreach($completion->fetchAll()as$row)$byClass[(int)$row['documento_turma_id']][]=$row;
         $openingStatement=$this->repository->db->prepare('SELECT da.*,u.nome atualizado_por_nome FROM documento_aberturas da LEFT JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$openingStatement->execute([':periodo'=>$periodId]);
-        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
-        return compact('period','classes','opening')+['conclusoes'=>$byClass];
+        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'titulo'=>null,'titulo_versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
+        $defaultTitle=self::defaultDocumentTitle($period);
+        $title=trim((string)($opening['titulo']??''));
+        if($title==='')$title=$defaultTitle;
+        return compact('period','classes','opening','title','defaultTitle')+['conclusoes'=>$byClass];
     }
 
     public function saveOpening(int $periodId,string $text,int $version,int $actorId,string $role): array
@@ -82,6 +90,20 @@ final class CouncilDocumentService
         if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','A abertura foi atualizada em outra sessão. Recarregue a página.');
         $fresh=$this->repository->db->prepare('SELECT da.versao,da.atualizado_em,u.nome atualizado_por_nome FROM documento_aberturas da JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$fresh->execute([':periodo'=>$periodId]);$saved=$fresh->fetch();
         return['version'=>(int)$saved['versao'],'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
+    }
+
+    public function saveTitle(int $periodId,string $title,int $version,int $actorId,string $role): array
+    {
+        if(!in_array($role,['ADMIN','COORDENADOR'],true))throw new HttpException(403,'FORBIDDEN','Somente a coordenação e a administração podem editar o título da ata.');
+        $period=$this->period($periodId);
+        if($period['status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','O título só pode ser editado durante o período aberto.');
+        $title=trim($title);
+        if(mb_strlen($title)>300)throw new HttpException(422,'TITLE_TOO_LONG','O título excedeu o limite de 300 caracteres.');
+        $statement=$this->repository->db->prepare('UPDATE documento_aberturas SET titulo=:titulo,titulo_versao=titulo_versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE periodo_id=:periodo AND titulo_versao=:versao');
+        $statement->execute([':titulo'=>$title===''?null:$title,':usuario'=>$actorId,':periodo'=>$periodId,':versao'=>$version]);
+        if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','O título foi alterado em outra sessão. Recarregue a página.');
+        $fresh=$this->repository->db->prepare('SELECT da.titulo_versao,da.atualizado_em,u.nome atualizado_por_nome FROM documento_aberturas da JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$fresh->execute([':periodo'=>$periodId]);$saved=$fresh->fetch();
+        return['version'=>(int)$saved['titulo_versao'],'title'=>$title===''?self::defaultDocumentTitle($period):$title,'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
     }
 
     public function acquireClassLock(int $periodId,int $classDocumentId,int $actorId,string $role,string $currentToken=''): array
