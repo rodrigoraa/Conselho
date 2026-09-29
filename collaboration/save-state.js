@@ -21,6 +21,11 @@ export const createSaveState = () => {
     },
     rejectSave(message) { rejected = message || 'Não foi possível salvar a alteração.' },
     invalidate() { request++ },
-    canFinalize(connected) { return connected && !rejected && !this.pending },
+    trackUpdate(origin, provider) {
+      if (origin === provider) return false
+      this.edit()
+      return true
+    },
+    canFinalize(connected, synced) { return connected && synced && !rejected && !this.pending },
   }
 }

@@ -257,8 +257,43 @@ const collaboration = new Server({
     if (!Number.isSafeInteger(request.id) || !Number.isSafeInteger(request.revision) || typeof request.content !== 'string') return
     const state = states.get(documentName)
     if (!state) return
+    const expectedContent = normalizeText(request.content)
+    if (expectedContent !== state.content && Array.isArray(request.update) && request.update.length > 0 && request.update.length <= 1000000 && request.update.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255) && connection?.context?.token) {
+      state.queue = state.queue.then(async () => {
+        if (expectedContent === state.content) return
+        const context = connection.context
+        try {
+          const candidate = cloneDocument(state.shadow)
+          Y.applyUpdate(candidate, Uint8Array.from(request.update))
+          const candidateContent = documentText(candidate)
+          if (candidateContent !== expectedContent && documentText(connection.document) !== expectedContent) return
+          const nextContent = expectedContent
+          const operations = operationsBetween(state.content, nextContent)
+          if (!operations.length) return
+          logPersistence('save-start', { documentName, userId: context.user?.id, expectedVersion: state.version, operations: operations.length })
+          const saved = await api('/internal/collaboration/save', {
+            token: context.token,
+            document: documentName,
+            content: nextContent,
+            version: state.version,
+            operations,
+            ip: context.ip,
+            user_agent: context.userAgent,
+          })
+          state.shadow = candidateContent === expectedContent ? candidate : cloneDocument(connection.document)
+          state.content = nextContent
+          const previousVersion = state.version
+          state.version = Number(saved.version)
+          logPersistence('save-end', { documentName, userId: context.user?.id, expectedVersion: previousVersion, receivedVersion: state.version, status: 200 })
+          persistenceMessage(connection, { type: 'saved', version: state.version, saved_at: saved.saved_at, updated_by: saved.updated_by })
+        } catch (error) {
+          logPersistence('save-error', { documentName, userId: context.user?.id, expectedVersion: state.version, status: error.status || 500, code: error.code || 'COLLABORATION_SAVE_FAILED' })
+          persistenceMessage(connection, { type: 'rejected', code: error.code || 'COLLABORATION_SAVE_FAILED', message: error.message || 'A alteração não pôde ser salva.' })
+        }
+      })
+    }
     await state.queue
-    if (normalizeText(request.content) === state.content) {
+    if (expectedContent === state.content) {
       persistenceMessage(connection, { type: 'confirmed', id: request.id, revision: request.revision, version: state.version })
     } else {
       persistenceMessage(connection, { type: 'confirmation-pending', id: request.id, revision: request.revision })

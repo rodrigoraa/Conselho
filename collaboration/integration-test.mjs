@@ -11,6 +11,8 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import * as Y from 'yjs'
 import { createSaveState } from './save-state.js'
+import { createFinalization } from './finalization.js'
+import { createLocalUpdates } from './local-updates.js'
 
 const secret = '0123456789abcdef0123456789abcdef0123456789abcdef'
 const apiPort = 18181 + Math.floor(Math.random() * 500)
@@ -120,18 +122,25 @@ const appendText = (document, text) => {
 const createClient = token => {
   const document = new Y.Doc()
   const messages = []
+  let connected = false
+  let synced = false
   const provider = new HocuspocusProvider({
     url: `ws://127.0.0.1:${collaborationPort}`,
     name: documentName,
     document,
     token,
+    onStatus: ({ status }) => { connected = status === 'connected'; if (!connected) synced = false },
+    onSynced: ({ state }) => { synced = state },
     onStateless: ({ payload }) => { try { messages.push(JSON.parse(payload)) } catch {} },
   })
   return {
     document,
     provider,
     messages,
-    async synced() { await wait(() => provider.synced) },
+    get connected() { return connected },
+    get syncedState() { return synced },
+    async synced() { await wait(() => connected && synced) },
+    async disconnected() { await wait(() => !connected && !synced) },
     async message(type, after = 0) { await wait(() => messages.slice(after).some(message => message.type === type)); return messages.slice(after).find(message => message.type === type) },
     async confirm(revision = 1) {
       const id = messages.length + 1
@@ -147,6 +156,7 @@ let collaboration
 let first
 let second
 let reopened
+let offline
 
 try {
   await listen(api)
@@ -170,22 +180,79 @@ try {
   first = createClient('professor1')
   await first.synced()
   const clean = createSaveState()
-  assert.equal(clean.canFinalize(true), true)
-  assert.equal(clean.canFinalize(false), false)
+  assert.equal(clean.canFinalize(true, true), true)
+  assert.equal(clean.canFinalize(true, false), false)
+  assert.equal(clean.canFinalize(false, true), false)
   clean.edit()
   const old = clean.request()
   clean.edit()
   assert.equal(clean.confirm(old), false)
-  assert.equal(clean.canFinalize(true), false)
+  assert.equal(clean.canFinalize(true, true), false)
   const current = clean.request()
   assert.equal(clean.confirm(current), true)
-  assert.equal(clean.canFinalize(true), true)
+  assert.equal(clean.canFinalize(true, true), true)
   clean.edit()
   const refused = clean.request()
   assert.equal(clean.reject({ ...refused, message: 'Versão divergente.' }), true)
-  assert.equal(clean.canFinalize(true), false)
+  assert.equal(clean.canFinalize(true, true), false)
   clean.edit()
-  assert.equal(clean.canFinalize(true), false)
+  assert.equal(clean.canFinalize(true, true), false)
+
+  const form = {}
+  const button = { disabled: false }
+  let connection = { connected: true, synced: true }
+  let submitted = 0
+  let prompted = ''
+  let confirmRequests = 0
+  let confirmationWait = async condition => condition()
+  const finalize = createFinalization({
+    save: clean,
+    connection: () => connection,
+    confirmSave: () => { confirmRequests++ },
+    waitFor: condition => confirmationWait(condition),
+    showStatus: () => {},
+    notify: message => { prompted = message },
+    submit: target => { assert.equal(target, form); submitted++ },
+  })
+  await finalize(button, form)
+  assert.match(prompted, /salvamento/)
+  assert.equal(button.disabled, false)
+  assert.equal(clean.pending, true)
+  assert.equal(confirmRequests, 1)
+  confirmationWait = async () => false
+  await finalize(button, form)
+  assert.match(prompted, /confirmar o salvamento/)
+  assert.equal(button.disabled, false)
+  assert.equal(clean.pending, true)
+  connection = { connected: true, synced: false }
+  await finalize(button, form)
+  assert.match(prompted, /sincronização/)
+  assert.equal(confirmRequests, 2)
+  connection = { connected: false, synced: false }
+  await finalize(button, form)
+  assert.match(prompted, /conexão/)
+  connection = { connected: true, synced: true }
+  clean.rejectSave('Versão divergente.')
+  await finalize(button, form)
+  assert.equal(prompted, 'Versão divergente.')
+  clean.edit()
+  const finalRequest = clean.request()
+  clean.confirm(finalRequest)
+  await finalize(button, form)
+  assert.equal(submitted, 1)
+  assert.equal(button.disabled, true)
+
+  const cleanButton = { disabled: false }
+  let cleanSubmitted = false
+  const finalizeClean = createFinalization({
+    save: createSaveState(), connection: () => ({ connected: true, synced: true }),
+    confirmSave: () => assert.fail('Documento sem edição não precisa confirmar novamente.'),
+    waitFor: () => assert.fail('Documento sem edição não precisa esperar.'),
+    showStatus: () => {}, notify: () => assert.fail('Finalização limpa não deve mostrar erro.'),
+    submit: () => { cleanSubmitted = true },
+  })
+  await finalizeClean(cleanButton, form)
+  assert.equal(cleanSubmitted, true)
   const firstMessageIndex = first.messages.length
   replaceText(first.document, 'Gabriel apresentou evolução.')
   await first.confirm()
@@ -195,7 +262,7 @@ try {
   second = createClient('professor2')
   await second.synced()
   assert.equal(documentText(second.document), state.content)
-  assert.equal(createSaveState().canFinalize(true), true)
+  assert.equal(createSaveState().canFinalize(true, true), true)
   await second.confirm(0)
   const secondMessageIndex = second.messages.length
   appendText(second.document, ' Bruno precisa de apoio.')
@@ -221,7 +288,7 @@ try {
   first.provider.flushPendingUpdates()
   await wait(() => first.provider.hasUnsyncedChanges === false)
   first.provider.disconnect()
-  assert.equal(clean.canFinalize(false), false)
+  assert.equal(clean.canFinalize(false, false), false)
   finishDisconnectedSave()
   saveDelay = null
   await wait(() => state.content.includes(' Reconectado.'))
@@ -249,27 +316,57 @@ try {
   await wait(() => documentText(first.document) === protectedContent && documentText(second.document) === protectedContent)
   assert.equal(state.content, protectedContent)
 
+  const stableState = createSaveState()
+  first.document.on('update', (_update, origin) => { stableState.trackUpdate(origin, first.provider) })
   first.provider.disconnect()
   await wait(() => first.provider.status !== 'connected')
   await first.provider.connect()
   await first.synced()
   assert.equal(documentText(first.document), protectedContent)
-  assert.equal(createSaveState().canFinalize(true), true)
+  assert.equal(stableState.pending, false)
+  assert.equal(stableState.canFinalize(true, true), true)
+
+  offline = createClient('professor1')
+  await offline.synced()
+  const offlineState = createSaveState()
+  const offlineUpdates = createLocalUpdates(offlineState)
+  offline.document.on('update', (update, origin) => { offlineUpdates.track(update, origin, offline.provider) })
+  assert.equal(offlineState.canFinalize(true, true), true)
+  offline.provider.disconnect()
+  await offline.disconnected()
+  appendText(offline.document, ' Edição offline preservada.')
+  assert.equal(offlineState.pending, true)
+  assert.equal(offlineState.revision, 1)
+  assert.equal(offlineState.canFinalize(false, false), false)
+  await offline.provider.connect()
+  assert.equal(offlineState.canFinalize(true, false), false)
+  await offline.synced()
+  assert.equal(offlineState.canFinalize(true, true), false)
+  const offlineMessageIndex = offline.messages.length
+  const offlineRequest = offlineState.request()
+  offline.provider.sendStateless(JSON.stringify({ type: 'confirm-save', ...offlineRequest, content: documentText(offline.document), update: offlineUpdates.merged() }))
+  await offline.message('saved', offlineMessageIndex)
+  const offlineConfirmation = await offline.message('confirmed', offlineMessageIndex)
+  assert.equal(offlineState.confirm(offlineConfirmation), true)
+  offlineUpdates.confirmed()
+  assert.equal(offlineState.canFinalize(true, true), true)
+  assert.equal(state.content, documentText(offline.document))
 
   reopened = createClient('professor1')
   await reopened.synced()
-  assert.equal(documentText(reopened.document), protectedContent)
+  assert.equal(documentText(reopened.document), state.content)
   const mismatchIndex = reopened.messages.length
   reopened.provider.sendStateless(JSON.stringify({ type: 'confirm-save', id: 999, revision: 0, content: 'texto diferente' }))
   await reopened.message('confirmation-pending', mismatchIndex)
   await reopened.confirm(0)
-  assert.equal(state.content, protectedContent)
+  assert.equal(state.content, documentText(offline.document))
 
   process.stdout.write('Colaboração integrada: dois usuários sincronizados, alterações simultâneas convergentes e texto alheio protegido.\n')
 } finally {
   first?.destroy()
   second?.destroy()
   reopened?.destroy()
+  offline?.destroy()
   if (collaboration && collaboration.exitCode === null) {
     collaboration.kill('SIGTERM')
     await waitForExit(collaboration)
