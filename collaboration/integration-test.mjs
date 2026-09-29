@@ -10,6 +10,7 @@ import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import * as Y from 'yjs'
+import { createSaveState } from './save-state.js'
 
 const secret = '0123456789abcdef0123456789abcdef0123456789abcdef'
 const apiPort = 18181 + Math.floor(Math.random() * 500)
@@ -17,6 +18,7 @@ const collaborationPort = 12600 + Math.floor(Math.random() * 500)
 const database = join(tmpdir(), `conselho-collaboration-${process.pid}.sqlite`)
 const documentName = 'council:1:1'
 const state = { content: '', owners: [], version: 1 }
+let saveDelay = null
 const users = {
   professor1: { id: 1, name: 'Professor Um', role: 'PROFESSOR' },
   professor2: { id: 2, name: 'Professor Dois', role: 'PROFESSOR' },
@@ -43,6 +45,7 @@ const api = createServer(async (request, response) => {
     if (!user || body.document !== documentName) return send(response, 403, { success: false, error: 'FORBIDDEN', message: 'Token inválido.' })
     if (request.url === '/internal/collaboration/snapshot') return send(response, 200, { success: true, user, period: 1, class: 1, content: state.content, version: state.version })
     if (request.url !== '/internal/collaboration/save') return send(response, 404, { success: false })
+    if (saveDelay) await saveDelay
     if (Number(body.version) !== state.version) return send(response, 409, { success: false, error: 'VERSION_CONFLICT', message: 'Versão divergente.' })
     const characters = Array.from(state.content)
     const owners = [...state.owners]
@@ -130,6 +133,12 @@ const createClient = token => {
     messages,
     async synced() { await wait(() => provider.synced) },
     async message(type, after = 0) { await wait(() => messages.slice(after).some(message => message.type === type)); return messages.slice(after).find(message => message.type === type) },
+    async confirm(revision = 1) {
+      const id = messages.length + 1
+      provider.flushPendingUpdates()
+      provider.sendStateless(JSON.stringify({ type: 'confirm-save', id, revision, content: documentText(document) }))
+      await wait(() => messages.some(message => message.type === 'confirmed' && message.id === id))
+    },
     destroy() { provider.destroy(); document.destroy() },
   }
 }
@@ -137,6 +146,7 @@ const createClient = token => {
 let collaboration
 let first
 let second
+let reopened
 
 try {
   await listen(api)
@@ -159,19 +169,66 @@ try {
 
   first = createClient('professor1')
   await first.synced()
+  const clean = createSaveState()
+  assert.equal(clean.canFinalize(true), true)
+  assert.equal(clean.canFinalize(false), false)
+  clean.edit()
+  const old = clean.request()
+  clean.edit()
+  assert.equal(clean.confirm(old), false)
+  assert.equal(clean.canFinalize(true), false)
+  const current = clean.request()
+  assert.equal(clean.confirm(current), true)
+  assert.equal(clean.canFinalize(true), true)
+  clean.edit()
+  const refused = clean.request()
+  assert.equal(clean.reject({ ...refused, message: 'Versão divergente.' }), true)
+  assert.equal(clean.canFinalize(true), false)
+  clean.edit()
+  assert.equal(clean.canFinalize(true), false)
   const firstMessageIndex = first.messages.length
   replaceText(first.document, 'Gabriel apresentou evolução.')
+  await first.confirm()
   await first.message('saved', firstMessageIndex)
   assert.equal(state.content, 'Gabriel apresentou evolução.')
 
   second = createClient('professor2')
   await second.synced()
   assert.equal(documentText(second.document), state.content)
+  assert.equal(createSaveState().canFinalize(true), true)
+  await second.confirm(0)
   const secondMessageIndex = second.messages.length
   appendText(second.document, ' Bruno precisa de apoio.')
   await second.message('saved', secondMessageIndex)
   await wait(() => documentText(first.document) === state.content)
   assert.equal(state.content, 'Gabriel apresentou evolução. Bruno precisa de apoio.')
+
+  const delayed = new Promise(resolve => { saveDelay = new Promise(done => { resolve(done) }) })
+  const release = await delayed
+  const delayedMessageIndex = first.messages.length
+  appendText(first.document, ' Persistência lenta.')
+  first.provider.flushPendingUpdates()
+  await wait(() => first.provider.hasUnsyncedChanges === false)
+  assert.equal(first.messages.slice(delayedMessageIndex).some(message => message.type === 'saved'), false)
+  release()
+  saveDelay = null
+  await first.message('saved', delayedMessageIndex)
+  await first.confirm(2)
+
+  let finishDisconnectedSave
+  saveDelay = new Promise(resolve => { finishDisconnectedSave = resolve })
+  appendText(first.document, ' Reconectado.')
+  first.provider.flushPendingUpdates()
+  await wait(() => first.provider.hasUnsyncedChanges === false)
+  first.provider.disconnect()
+  assert.equal(clean.canFinalize(false), false)
+  finishDisconnectedSave()
+  saveDelay = null
+  await wait(() => state.content.includes(' Reconectado.'))
+  await first.provider.connect()
+  await first.synced()
+  await first.confirm(3)
+  assert.equal(documentText(first.document), state.content)
 
   const simultaneousFirst = first.messages.length
   const simultaneousSecond = second.messages.length
@@ -192,10 +249,27 @@ try {
   await wait(() => documentText(first.document) === protectedContent && documentText(second.document) === protectedContent)
   assert.equal(state.content, protectedContent)
 
+  first.provider.disconnect()
+  await wait(() => first.provider.status !== 'connected')
+  await first.provider.connect()
+  await first.synced()
+  assert.equal(documentText(first.document), protectedContent)
+  assert.equal(createSaveState().canFinalize(true), true)
+
+  reopened = createClient('professor1')
+  await reopened.synced()
+  assert.equal(documentText(reopened.document), protectedContent)
+  const mismatchIndex = reopened.messages.length
+  reopened.provider.sendStateless(JSON.stringify({ type: 'confirm-save', id: 999, revision: 0, content: 'texto diferente' }))
+  await reopened.message('confirmation-pending', mismatchIndex)
+  await reopened.confirm(0)
+  assert.equal(state.content, protectedContent)
+
   process.stdout.write('Colaboração integrada: dois usuários sincronizados, alterações simultâneas convergentes e texto alheio protegido.\n')
 } finally {
   first?.destroy()
   second?.destroy()
+  reopened?.destroy()
   if (collaboration && collaboration.exitCode === null) {
     collaboration.kill('SIGTERM')
     await waitForExit(collaboration)

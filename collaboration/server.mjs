@@ -131,6 +131,9 @@ const reconcileState = async (state, liveDocument, token, documentName) => {
 const persistenceMessage = (connection, payload) => {
   try { connection?.sendStateless(JSON.stringify(payload)) } catch {}
 }
+const logPersistence = (phase, details) => {
+  process.stdout.write(`${JSON.stringify({ event: 'collaboration-persistence', phase, ...details })}\n`)
+}
 
 const collaboration = new Server({
   name: 'conselho-colaborativo',
@@ -144,7 +147,15 @@ const collaboration = new Server({
 
   async onAuthenticate({ token, documentName, requestHeaders }) {
     if (!token) throw new Error('Credencial de colaboração ausente.')
-    const fresh = await snapshot(token, documentName)
+    logPersistence('snapshot-start', { documentName })
+    let fresh
+    try {
+      fresh = await snapshot(token, documentName)
+      logPersistence('snapshot-end', { documentName, userId: fresh.user.id, receivedVersion: fresh.version, status: 200 })
+    } catch (error) {
+      logPersistence('snapshot-error', { documentName, status: error.status || 500, code: error.code || 'COLLABORATION_API_UNAVAILABLE' })
+      throw error
+    }
     const forwarded = requestHeaders.get('x-forwarded-for') || ''
     return {
       token,
@@ -194,10 +205,12 @@ const collaboration = new Server({
       const operations = operationsBetween(state.content, nextContent)
       if (operations.length === 0) {
         Y.applyUpdate(state.shadow, capturedUpdate)
+        logPersistence('save-noop', { documentName, userId: context.user.id, version: state.version, status: 200 })
         persistenceMessage(connection, { type: 'saved', version: state.version, saved_at: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })
         return
       }
       try {
+        logPersistence('save-start', { documentName, userId: context.user.id, expectedVersion: state.version, operations: operations.length })
         const saved = await api('/internal/collaboration/save', {
           token: context.token,
           document: documentName,
@@ -210,8 +223,10 @@ const collaboration = new Server({
         Y.applyUpdate(state.shadow, capturedUpdate)
         state.content = nextContent
         state.version = Number(saved.version)
+        logPersistence('save-end', { documentName, userId: context.user.id, expectedVersion: state.version - 1, receivedVersion: state.version, status: 200 })
         persistenceMessage(connection, { type: 'saved', version: state.version, saved_at: saved.saved_at, updated_by: saved.updated_by })
       } catch (error) {
+        logPersistence('save-error', { documentName, userId: context.user.id, expectedVersion: state.version, status: error.status || 500, code: error.code || 'COLLABORATION_SAVE_FAILED' })
         state.reconcile = true
         if (error instanceof CollaborationApiError && error.status === 409) {
           await reconcileState(state, document, context.token, documentName).catch(() => {})
@@ -233,6 +248,21 @@ const collaboration = new Server({
       }
     })
     await state.queue
+  },
+
+  async onStateless({ connection, documentName, payload }) {
+    let request
+    try { request = JSON.parse(payload) } catch { return }
+    if (request.type !== 'confirm-save') return
+    if (!Number.isSafeInteger(request.id) || !Number.isSafeInteger(request.revision) || typeof request.content !== 'string') return
+    const state = states.get(documentName)
+    if (!state) return
+    await state.queue
+    if (normalizeText(request.content) === state.content) {
+      persistenceMessage(connection, { type: 'confirmed', id: request.id, revision: request.revision, version: state.version })
+    } else {
+      persistenceMessage(connection, { type: 'confirmation-pending', id: request.id, revision: request.revision })
+    }
   },
 
   async afterUnloadDocument({ documentName }) {

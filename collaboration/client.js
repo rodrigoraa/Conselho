@@ -6,6 +6,7 @@ import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import * as Y from 'yjs'
+import { createSaveState } from './save-state.js'
 
 const nodeText = node => {
   if (!node) return ''
@@ -56,12 +57,15 @@ const initializeCollaboration = textarea => {
   const ydoc = new Y.Doc()
   let editor
   let connected = false
-  let persisted = true
+  const save = createSaveState()
   let submitting = false
-
-  const setPending = value => {
-    persisted = !value
-    textarea.dataset.collaborationPending = value ? '1' : '0'
+  let finalizing = false
+  const updatePending = () => { textarea.dataset.collaborationPending = save.pending ? '1' : '0' }
+  const confirmSave = () => {
+    if (!connected || save.rejected || !save.pending) return
+    provider.flushPendingUpdates()
+    const request = save.request()
+    provider.sendStateless(JSON.stringify({ type: 'confirm-save', ...request, content: editorText(editor) }))
   }
 
   const showState = (text, kind = 'neutral') => {
@@ -101,6 +105,7 @@ const initializeCollaboration = textarea => {
       connected = providerStatus === 'connected'
       textarea.dataset.collaborationConnected = connected ? '1' : '0'
       if (!connected) {
+        save.invalidate()
         showState(providerStatus === 'connecting' ? 'Reconectando…' : 'Desconectado', 'neutral')
         if (status) status.textContent = 'Conexão interrompida. O sistema tentará reconectar automaticamente.'
       }
@@ -111,7 +116,8 @@ const initializeCollaboration = textarea => {
       textarea.dataset.collaborationConnected = '1'
       editor?.setEditable(true)
       showState('Conectado ao vivo', 'online')
-      if (status && persisted) status.textContent = '✓ Editor sincronizado. Alterações são salvas em tempo real.'
+      if (save.pending) confirmSave()
+      if (status && !save.pending && !save.rejected) status.textContent = '✓ Editor sincronizado. Alterações são salvas em tempo real.'
     },
     onAuthenticationFailed: ({ reason }) => {
       connected = false
@@ -122,26 +128,41 @@ const initializeCollaboration = textarea => {
     },
     onAwarenessChange: ({ states }) => renderUsers(states),
     onUnsyncedChanges: ({ number }) => {
-      if (number > 0) {
-        setPending(true)
-        if (status) status.textContent = 'Sincronizando alterações…'
-      }
+      if (number > 0 && save.pending && status) status.textContent = 'Sincronizando alterações…'
     },
     onStateless: ({ payload }) => {
       let message
       try { message = JSON.parse(payload) } catch { return }
       if (message.type === 'saved') {
-        setPending(false)
         textarea.dataset.version = String(message.version)
-        editorCard?.classList.remove('save-conflict')
-        if (status) status.textContent = `✓ Alterações salvas às ${message.saved_at}.`
+        if (save.pending && !save.rejected) confirmSave()
       }
       if (message.type === 'rejected') {
-        setPending(false)
+        save.rejectSave(message.message)
         editorCard?.classList.add('save-conflict')
         if (status) status.textContent = message.message || 'Sua alteração foi desfeita porque não era permitida.'
       }
+      if (message.type === 'confirmed' && save.confirm(message)) {
+        updatePending()
+        editorCard?.classList.remove('save-conflict')
+        if (status) status.textContent = '✓ Alterações confirmadas no banco.'
+      }
+      if (message.type === 'confirmation-pending' && save.pending && !save.rejected) {
+        if (status) status.textContent = 'Aguardando o texto salvo e a sincronização do editor…'
+      }
     },
+  })
+
+  ydoc.on('update', (_update, origin) => {
+    if (origin === provider) {
+      if (save.pending && connected) queueMicrotask(confirmSave)
+      return
+    }
+    if (!connected) return
+    save.edit()
+    updatePending()
+    editorCard?.classList.remove('save-conflict')
+    if (status) status.textContent = 'Sincronizando alterações…'
   })
 
   editor = new Editor({
@@ -182,29 +203,32 @@ const initializeCollaboration = textarea => {
     },
   })
 
-  surface.addEventListener('beforeinput', () => {
-    if (!connected) return
-    setPending(true)
-    editorCard?.classList.remove('save-conflict')
-    if (status) status.textContent = 'Sincronizando alterações…'
-  })
-
   section?.querySelector('[data-finalize-class]')?.addEventListener('submit', async event => {
-    if (submitting || (!provider.hasUnsyncedChanges && persisted && connected)) return
     event.preventDefault()
+    if (submitting || finalizing) return
+    finalizing = true
+    const form = event.currentTarget
+    const button = event.submitter || form.querySelector('button')
+    if (button) button.disabled = true
+    const fail = message => { finalizing = false; if (button) button.disabled = false; if (status) status.textContent = message; alert(message) }
     if (!connected) {
-      alert('Aguarde a reconexão do editor antes de finalizar a turma.')
+      fail('A conexão com o editor foi interrompida. Aguarde a reconexão antes de finalizar.')
       return
     }
-    provider.flushPendingUpdates()
-    if (status) status.textContent = 'Aguardando a confirmação do salvamento para finalizar…'
-    const ready = await waitFor(() => !provider.hasUnsyncedChanges && persisted && connected)
+    if (save.rejected) { fail(save.rejected); return }
+    if (save.pending) {
+      if (status) status.textContent = 'Salvando as últimas alterações antes de finalizar…'
+      confirmSave()
+    }
+    const ready = await waitFor(() => save.canFinalize(connected) || !!save.rejected || !connected)
     if (!ready) {
-      alert('Ainda não foi possível confirmar o salvamento. Aguarde alguns segundos e tente novamente.')
+      fail('Ainda não foi possível confirmar o salvamento. Aguarde alguns segundos e tente novamente.')
       return
     }
+    if (!connected) { fail('A conexão com o editor foi interrompida. Aguarde a reconexão antes de finalizar.'); return }
+    if (save.rejected) { fail(save.rejected); return }
     submitting = true
-    HTMLFormElement.prototype.submit.call(event.currentTarget)
+    HTMLFormElement.prototype.submit.call(form)
   })
 
   section?.addEventListener('toggle', async () => {
@@ -214,7 +238,7 @@ const initializeCollaboration = textarea => {
       return
     }
     provider.flushPendingUpdates()
-    await waitFor(() => !provider.hasUnsyncedChanges && persisted, 5000)
+    await waitFor(() => !save.pending || !!save.rejected, 5000)
     if (section.open) return
     provider.disconnect()
     connected = false
