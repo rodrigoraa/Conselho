@@ -9,6 +9,28 @@ document.querySelectorAll('form[action^="/apc/admin/eventos"]').forEach(form=>{
 });
 document.querySelectorAll('[data-print-page]').forEach(button=>button.addEventListener('click',()=>window.print()));
 
+const footerLinesForm=document.querySelector('[data-footer-lines-form]');
+if(footerLinesForm){
+  const list=footerLinesForm.querySelector('[data-footer-lines-list]');
+  const template=footerLinesForm.querySelector('[data-footer-line-template]');
+  const addButton=footerLinesForm.querySelector('[data-add-footer-line]');
+  const countOutput=footerLinesForm.querySelector('[data-footer-lines-count]');
+  let dirty=false,submitting=false;
+  const rows=()=>[...list.querySelectorAll('[data-footer-line-row]')];
+  const refresh=()=>{
+    const current=rows();
+    current.forEach((row,index)=>{row.querySelector('[data-footer-line-number]').textContent=`Linha ${index+1}`;row.querySelector('[data-remove-footer-line]').setAttribute('aria-label',`Remover linha ${index+1}`)});
+    addButton.disabled=current.length>=30;
+    countOutput.textContent=`${current.length} linha(s). Salve para atualizar a visualização e a impressão.`;
+  };
+  addButton.addEventListener('click',()=>{if(rows().length>=30)return;const fragment=template.content.cloneNode(true);const row=fragment.querySelector('[data-footer-line-row]');list.append(fragment);dirty=true;refresh();row.querySelector('input').focus()});
+  list.addEventListener('click',event=>{const button=event.target.closest('[data-remove-footer-line]');if(!button)return;const row=button.closest('[data-footer-line-row]');const next=row.nextElementSibling||row.previousElementSibling;row.remove();dirty=true;refresh();(next?.querySelector('input')||addButton).focus()});
+  footerLinesForm.addEventListener('input',()=>{dirty=true});
+  footerLinesForm.addEventListener('submit',()=>{submitting=true});
+  window.addEventListener('beforeunload',event=>{if(dirty&&!submitting){event.preventDefault();event.returnValue=''}});
+  refresh();
+}
+
 const menuButton=document.querySelector('.menu-toggle');
 const mainNav=document.querySelector('#main-nav');
 const menuLabel=menuButton?.querySelector('[data-menu-label]');

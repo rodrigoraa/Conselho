@@ -132,49 +132,65 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertTrue($saved['success']);self::assertSame(2,$saved['version']);self::assertSame('Ata salva',$saved['title']);self::assertSame('Coordenação',$saved['updated_by']);
     }
 
-    public function testAdministradorPersonalizaLegendasNasDuasFolhasSemAlterarTituloOuAbertura(): void
+    public function testAdministradorGerenciaLinhasDoRodapeComLegadoVersaoELinhaVazia(): void
     {
         $document=$this->service->document(1,4,'ADMIN');
-        self::assertSame(['coordination'=>'Coordenação pedagógica','management'=>'Gestão escolar'],$document['signatures']);
+        self::assertSame(['Coordenação pedagógica','Gestão escolar'],$document['footerLines']);
+        $this->db->exec("UPDATE documento_aberturas SET assinatura_coordenacao='Coordenação antiga',assinatura_gestao='Gestão antiga' WHERE periodo_id=1");
+        self::assertSame(['Coordenação antiga','Gestão antiga'],$this->service->document(1,4,'ADMIN')['footerLines']);
         $openingText=$document['opening']['texto'];
-        try{$this->service->saveSignatures(1,'Coordenação','Gestão',1,1,'COORDENADOR');self::fail('Coordenação não deve editar as assinaturas.');}
+        try{$this->service->saveFooterLines(1,['Outra linha'],1,1,'COORDENADOR');self::fail('Coordenação não deve editar as linhas do rodapé.');}
         catch(HttpException$exception){self::assertSame(403,$exception->status);}
-        $this->service->saveSignatures(1,'  Maria <Diretora>  ','Equipe gestora',1,4,'ADMIN');
+        try{$this->service->saveFooterLines(1,['Outra linha'],1,2,'PROFESSOR');self::fail('Professor não deve editar as linhas do rodapé.');}
+        catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        $this->service->saveFooterLines(1,['Maria <Diretora>','','Equipe gestora'],1,4,'ADMIN');
         $document=$this->service->document(1,2,'PROFESSOR');
-        self::assertSame(['coordination'=>'Maria <Diretora>','management'=>'Equipe gestora'],$document['signatures']);
-        self::assertSame(2,(int)$document['opening']['assinaturas_versao']);
+        self::assertSame(['Maria <Diretora>','','Equipe gestora'],$document['footerLines']);
+        self::assertSame(2,(int)$document['opening']['linhas_rodape_versao']);
         self::assertSame(1,(int)$document['opening']['versao']);
         self::assertSame(1,(int)$document['opening']['titulo_versao']);
         self::assertSame($openingText,$document['opening']['texto']);
+        try{$this->service->saveFooterLines(1,['Texto antigo'],1,4,'ADMIN');self::fail('A versão anterior deveria causar conflito.');}
+        catch(HttpException$exception){self::assertSame(409,$exception->status);self::assertSame('VERSION_CONFLICT',$exception->errorCode);}
+        $this->service->saveFooterLines(1,['','Equipe gestora'],2,4,'ADMIN');
+        self::assertSame(['','Equipe gestora'],$this->service->document(1,4,'ADMIN')['footerLines']);
+        $this->service->saveFooterLines(1,[],3,4,'ADMIN');
+        self::assertSame([],$this->service->document(1,4,'ADMIN')['footerLines']);
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
+        try{$this->service->saveFooterLines(1,['Fechado'],4,4,'ADMIN');self::fail('Período encerrado deveria bloquear edição.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);self::assertSame('DOCUMENT_LOCKED',$exception->errorCode);}
+    }
+
+    public function testRodapeVariavelEscapaTextoNasDuasFolhasEEditorSoApareceParaAdmin(): void
+    {
+        $this->service->saveFooterLines(1,['<script>alert(1)</script>',''],1,4,'ADMIN');
         $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
         $_SERVER['REQUEST_URI']='/documentos/1';
         $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
         $admin=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
-        self::assertStringContainsString('name="assinatura_coordenacao"',$admin);
-        self::assertSame(2,substr_count($admin,'<footer class="paper-signatures"><p><span></span>Maria &lt;Diretora&gt;</p><p><span></span>Equipe gestora</p></footer>'));
+        self::assertStringContainsString('name="linhas[]"',$admin);
+        self::assertStringContainsString('Adicionar linha',$admin);
         $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
         $coord=$view->render('document',['document'=>$this->service->document(1,1,'COORDENADOR'),'period'=>1,'title'=>'Documento coletivo']);
-        self::assertStringNotContainsString('name="assinatura_coordenacao"',$coord);
+        self::assertStringNotContainsString('name="linhas[]"',$coord);
         $_SESSION['user']=['id'=>2,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];
-        $teacher=$view->render('document',['document'=>$document,'period'=>1,'title'=>'Documento coletivo']);
-        self::assertStringNotContainsString('name="assinatura_coordenacao"',$teacher);
-        self::assertSame(2,substr_count($teacher,'Maria &lt;Diretora&gt;'));
-        try{$this->service->saveSignatures(1,'Texto antigo','Outro',1,4,'ADMIN');self::fail('A versão anterior deveria causar conflito.');}
-        catch(HttpException$exception){self::assertSame(409,$exception->status);}
-        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
-        try{$this->service->saveSignatures(1,'Fechado','Fechado',2,4,'ADMIN');self::fail('Período encerrado deveria bloquear edição.');}
-        catch(HttpException$exception){self::assertSame(422,$exception->status);}
+        $teacher=$view->render('document',['document'=>$this->service->document(1,2,'PROFESSOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('name="linhas[]"',$teacher);
+        self::assertSame(2,substr_count($teacher,'&lt;script&gt;alert(1)&lt;/script&gt;'));
+        self::assertStringNotContainsString('<script>alert(1)</script>',$teacher);
     }
 
-    public function testSalvarLegendasExigeCsrfEAdministrador(): void
+    public function testSalvarLinhasDoRodapeExigeCsrfERecebeListaVazia(): void
     {
         $controller=new WebController(new AppRepository($this->db),new View(dirname(__DIR__).'/apps/preconselho-web/resources/views'),new SecretariaApiClient());
-        $body=['_csrf'=>Csrf::token(),'assinatura_coordenacao'=>'Nova coordenação','assinatura_gestao'=>'Nova gestão','versao'=>1];
+        $body=['_csrf'=>Csrf::token(),'linhas'=>['Nova primeira linha','','Nova terceira linha'],'versao'=>1];
         $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
-        try{$controller->saveSignatures(new Request('POST','/documentos/1/assinaturas',[],['_csrf'=>'inválido']+$body,[]),['periodo'=>1]);self::fail('CSRF inválido deveria ser recusado.');}
+        try{$controller->saveFooterLines(new Request('POST','/documentos/1/linhas-rodape',[],['_csrf'=>'inválido']+$body,[]),['periodo'=>1]);self::fail('CSRF inválido deveria ser recusado.');}
         catch(HttpException$exception){self::assertSame(419,$exception->status);}
-        $controller->saveSignatures(new Request('POST','/documentos/1/assinaturas',[],$body,[]),['periodo'=>1]);
-        self::assertSame('Nova coordenação',$this->service->document(1,4,'ADMIN')['signatures']['coordination']);
+        $controller->saveFooterLines(new Request('POST','/documentos/1/linhas-rodape',[],$body,[]),['periodo'=>1]);
+        self::assertSame($body['linhas'],$this->service->document(1,4,'ADMIN')['footerLines']);
+        $controller->saveFooterLines(new Request('POST','/documentos/1/linhas-rodape',[],['_csrf'=>$body['_csrf'],'linhas'=>[],'versao'=>2],[]),['periodo'=>1]);
+        self::assertSame([],$this->service->document(1,4,'ADMIN')['footerLines']);
     }
 
     public function testSegundoProfessorInsereNoMeioDoMesmoTextoLivreDaTurma(): void

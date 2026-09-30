@@ -3,13 +3,13 @@ use PreConselho\Support\Csrf;
 use PreConselho\Support\CollaborationToken;
 use Shared\Env;
 
-$periodData=$document['period'];$classes=$document['classes'];$conclusions=$document['conclusoes'];$opening=$document['opening'];$documentTitle=$document['title'];$defaultDocumentTitle=$document['defaultTitle'];$signatures=$document['signatures'];
+$periodData=$document['period'];$classes=$document['classes'];$conclusions=$document['conclusoes'];$opening=$document['opening'];$documentTitle=$document['title'];$defaultDocumentTitle=$document['defaultTitle'];$footerLines=$document['footerLines'];
 $currentRole=(string)($_SESSION['user']['perfil']??'');
 $isTeacher=$currentRole==='PROFESSOR';
 $canWrite=$periodData['status']==='ABERTO';
 $isPrivilegedEditor=in_array($currentRole,['ADMIN','COORDENADOR'],true);
 $canEditOpening=in_array($currentRole,['ADMIN','COORDENADOR'],true)&&$periodData['status']==='ABERTO';
-$canEditSignatures=$currentRole==='ADMIN'&&$periodData['status']==='ABERTO';
+$canEditFooterLines=$currentRole==='ADMIN'&&$periodData['status']==='ABERTO';
 $canReleaseEditing=in_array($currentRole,['ADMIN','COORDENADOR'],true)&&$periodData['status']==='ABERTO';
 $collaborationUrl=trim(Env::get('COLLABORATION_WS_URL','')??'');$collaborationSecret=Env::get('COLLABORATION_SECRET','')??'';$collaborationEnabled=$collaborationUrl!==''&&strlen($collaborationSecret)>=32;
 $collaborationColors=['#176b87','#8b4f9c','#b05b28','#287a4b','#a43d55','#5368a8','#7a6428'];$collaborationUserId=(int)($_SESSION['user']['id']??0);$collaborationUserName=(string)($_SESSION['user']['nome']??'Usuário');$collaborationColor=$collaborationColors[$collaborationUserId%count($collaborationColors)];
@@ -66,20 +66,7 @@ ob_start();
 <?php if($canEditOpening):?><label><span class="sr-only">Texto de abertura da ata</span><textarea rows="8" maxlength="12000" data-opening-content data-version="<?=e($opening['versao'])?>" data-autosave-url="/documentos/<?=e($period)?>/abertura/autosave"><?=e($openingText)?></textarea></label><input type="hidden" value="<?=e(Csrf::token())?>" data-opening-csrf><small class="autosave-status" data-opening-save-status aria-live="polite">Salvamento automático ativado para a abertura.</small><?php else:?><div class="opening-readonly" data-opening-readonly data-opening-empty="<?=$openingText===''?'1':'0'?>"><?=nl2br(e($openingText?:'A abertura ainda não foi preenchida pela coordenação.'))?></div><?php endif;?>
 <?php if($opening['atualizado_por_nome']):?><small class="shared-last-update">Última atualização: <?=e($opening['atualizado_por_nome'])?> em <?=e(date('d/m/Y H:i',strtotime($opening['atualizado_em'])))?></small><?php endif;?></section>
 
-<?php if($canEditSignatures):?>
-<section id="assinaturas" class="card signature-settings">
-    <div class="section-heading"><div><p class="eyebrow">Assinaturas da ata</p><h2>Legendas abaixo das linhas de assinatura</h2><p>Altere os textos que aparecem na folha e na impressão do documento final.</p></div></div>
-    <form method="post" action="/documentos/<?=e($period)?>/assinaturas">
-        <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
-        <input type="hidden" name="versao" value="<?=e($opening['assinaturas_versao'])?>">
-        <div class="signature-settings-fields">
-            <label>Primeira assinatura<input type="text" name="assinatura_coordenacao" maxlength="300" value="<?=e($signatures['coordination'])?>"></label>
-            <label>Segunda assinatura<input type="text" name="assinatura_gestao" maxlength="300" value="<?=e($signatures['management'])?>"></label>
-        </div>
-        <button class="primary" type="submit">Salvar legendas</button>
-    </form>
-</section>
-<?php endif;?>
+
 
 <section class="collective-toolbar card" aria-label="Navegação das turmas">
     <?php if($isTeacher):?><div class="class-filters"><button class="primary" type="button" data-class-filter="mine" aria-pressed="true">Minhas turmas (<?=e($myClasses)?>)</button><button type="button" data-class-filter="all" aria-pressed="false">Todas as turmas (<?=count($classes)?>)</button></div><?php endif;?>
@@ -111,12 +98,31 @@ ob_start();
         </details>
     <?php endforeach;?>
     </div>
-    <footer class="paper-signatures"><p><span></span><?=e($signatures['coordination'])?></p><p><span></span><?=e($signatures['management'])?></p></footer>
+    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Linhas finais da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
 </article>
 <article class="paper-document final-document-preview" data-document-final hidden>
     <header class="paper-header"><p><?=e($schoolAuthority)?></p><p><?=e($schoolName)?></p><p><?=e($shiftLabel)?></p><h2 data-final-document-title><?=e($documentTitle)?></h2></header>
     <p class="final-council-text" data-final-narrative><?=$finalText!==''?e($finalText):'O documento ainda não possui texto.'?></p>
-    <footer class="paper-signatures"><p><span></span><?=e($signatures['coordination'])?></p><p><span></span><?=e($signatures['management'])?></p></footer>
+    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Linhas finais da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
 </article>
 </div>
+
+<?php if($canEditFooterLines):?>
+<section id="linhas-finais" class="card footer-lines-settings">
+    <div class="section-heading"><div><p class="eyebrow">Linhas finais da ata</p><h2>Linhas ao final do documento</h2><p>Adicione ou remova as linhas da folha acima e escreva o texto que deve aparecer abaixo de cada traço.</p></div></div>
+    <form method="post" action="/documentos/<?=e($period)?>/linhas-rodape" data-footer-lines-form>
+        <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
+        <input type="hidden" name="versao" value="<?=e($opening['linhas_rodape_versao'])?>">
+        <div class="footer-lines-list" data-footer-lines-list>
+            <?php foreach($footerLines as$index=>$line):?>
+            <div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Linha <?=e($index+1)?></span><input type="text" name="linhas[]" maxlength="300" value="<?=e($line)?>"></label><button type="button" data-remove-footer-line aria-label="Remover linha <?=e($index+1)?>">Remover</button></div>
+            <?php endforeach;?>
+        </div>
+        <template data-footer-line-template><div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Linha</span><input type="text" name="linhas[]" maxlength="300" value=""></label><button type="button" data-remove-footer-line>Remover</button></div></template>
+        <div class="footer-lines-actions"><button type="button" data-add-footer-line>Adicionar linha</button><button class="primary" type="submit">Salvar linhas</button></div>
+        <small class="helper" data-footer-lines-count aria-live="polite"><?=count($footerLines)?> linha(s). Salve para atualizar a visualização e a impressão.</small>
+    </form>
+</section>
+<?php endif;?>
+
 <?php $content=ob_get_clean();require __DIR__.'/layout.php';

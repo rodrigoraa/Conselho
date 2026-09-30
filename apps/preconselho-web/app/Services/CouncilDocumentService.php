@@ -73,12 +73,18 @@ final class CouncilDocumentService
         $byClass=[];
         foreach($completion->fetchAll()as$row)$byClass[(int)$row['documento_turma_id']][]=$row;
         $openingStatement=$this->repository->db->prepare('SELECT da.*,u.nome atualizado_por_nome FROM documento_aberturas da LEFT JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$openingStatement->execute([':periodo'=>$periodId]);
-        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'titulo'=>null,'titulo_versao'=>1,'assinatura_coordenacao'=>null,'assinatura_gestao'=>null,'assinaturas_versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
+        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'titulo'=>null,'titulo_versao'=>1,'assinatura_coordenacao'=>null,'assinatura_gestao'=>null,'assinaturas_versao'=>1,'linhas_rodape_json'=>null,'linhas_rodape_versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
         $defaultTitle=self::defaultDocumentTitle($period);
         $title=trim((string)($opening['titulo']??''));
         if($title==='')$title=$defaultTitle;
-        $signatures=['coordination'=>$opening['assinatura_coordenacao']??self::DEFAULT_COORDINATION_SIGNATURE,'management'=>$opening['assinatura_gestao']??self::DEFAULT_MANAGEMENT_SIGNATURE];
-        return compact('period','classes','opening','title','defaultTitle','signatures')+['conclusoes'=>$byClass];
+        if($opening['linhas_rodape_json']===null){
+            $footerLines=[$opening['assinatura_coordenacao']??self::DEFAULT_COORDINATION_SIGNATURE,$opening['assinatura_gestao']??self::DEFAULT_MANAGEMENT_SIGNATURE];
+        }else{
+            try{$footerLines=json_decode((string)$opening['linhas_rodape_json'],true,512,JSON_THROW_ON_ERROR);}
+            catch(\JsonException){throw new HttpException(500,'INVALID_FOOTER_LINES','As linhas do documento estão inválidas.');}
+            if(!is_array($footerLines)||!array_is_list($footerLines)||count($footerLines)>30||count(array_filter($footerLines,'is_string'))!==count($footerLines))throw new HttpException(500,'INVALID_FOOTER_LINES','As linhas do documento estão inválidas.');
+        }
+        return compact('period','classes','opening','title','defaultTitle','footerLines')+['conclusoes'=>$byClass];
     }
 
     public function saveOpening(int $periodId,string $text,int $version,int $actorId,string $role): array
@@ -109,16 +115,22 @@ final class CouncilDocumentService
         return['version'=>(int)$saved['titulo_versao'],'title'=>$title===''?self::defaultDocumentTitle($period):$title,'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
     }
 
-    public function saveSignatures(int $periodId,string $coordination,string $management,int $version,int $actorId,string $role): void
+    public function saveFooterLines(int $periodId,array $lines,int $version,int $actorId,string $role): void
     {
-        if($role!=='ADMIN')throw new HttpException(403,'FORBIDDEN','Somente a administração pode editar as assinaturas da ata.');
+        if($role!=='ADMIN')throw new HttpException(403,'FORBIDDEN','Somente a administração pode editar as linhas finais da ata.');
         $period=$this->period($periodId);
-        if($period['status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','As assinaturas só podem ser editadas durante o período aberto.');
-        $coordination=trim($coordination);$management=trim($management);
-        if(mb_strlen($coordination)>300||mb_strlen($management)>300)throw new HttpException(422,'SIGNATURE_TOO_LONG','Cada legenda de assinatura deve ter no máximo 300 caracteres.');
-        $statement=$this->repository->db->prepare('UPDATE documento_aberturas SET assinatura_coordenacao=:coordenacao,assinatura_gestao=:gestao,assinaturas_versao=assinaturas_versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE periodo_id=:periodo AND assinaturas_versao=:versao');
-        $statement->execute([':coordenacao'=>$coordination,':gestao'=>$management,':usuario'=>$actorId,':periodo'=>$periodId,':versao'=>$version]);
-        if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','As assinaturas foram alteradas em outra sessão. Recarregue a página.');
+        if($period['status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','As linhas finais só podem ser editadas durante o período aberto.');
+        if(!array_is_list($lines)||count($lines)>30)throw new HttpException(422,'INVALID_FOOTER_LINES','São permitidas até 30 linhas finais.');
+        $normalized=[];
+        foreach($lines as$line){
+            if(!is_string($line))throw new HttpException(422,'INVALID_FOOTER_LINES','O texto de uma linha final está inválido.');
+            $line=trim($line);
+            if(mb_strlen($line)>300)throw new HttpException(422,'FOOTER_LINE_TOO_LONG','Cada linha final deve ter no máximo 300 caracteres.');
+            $normalized[]=$line;
+        }
+        $statement=$this->repository->db->prepare('UPDATE documento_aberturas SET linhas_rodape_json=:linhas,linhas_rodape_versao=linhas_rodape_versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE periodo_id=:periodo AND linhas_rodape_versao=:versao');
+        $statement->execute([':linhas'=>json_encode($normalized,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR),':usuario'=>$actorId,':periodo'=>$periodId,':versao'=>$version]);
+        if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','As linhas finais foram alteradas em outra sessão. Recarregue a página.');
     }
 
     public function acquireClassLock(int $periodId,int $classDocumentId,int $actorId,string $role,string $currentToken=''): array
