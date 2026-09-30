@@ -98,29 +98,29 @@ ob_start();
         </details>
     <?php endforeach;?>
     </div>
-    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Linhas finais da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
+    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Assinaturas da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
 </article>
 <article class="paper-document final-document-preview" data-document-final hidden>
     <header class="paper-header"><p><?=e($schoolAuthority)?></p><p><?=e($schoolName)?></p><p><?=e($shiftLabel)?></p><h2 data-final-document-title><?=e($documentTitle)?></h2></header>
     <p class="final-council-text" data-final-narrative><?=$finalText!==''?e($finalText):'O documento ainda não possui texto.'?></p>
-    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Linhas finais da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
+    <?php if($footerLines):?><footer class="paper-signatures" aria-label="Assinaturas da ata"><?php foreach($footerLines as$line):?><p><span aria-hidden="true"></span><?=e($line)?></p><?php endforeach;?></footer><?php endif;?>
 </article>
 </div>
 
 <?php if($canEditFooterLines):?>
-<section id="linhas-finais" class="card footer-lines-settings">
-    <div class="section-heading"><div><p class="eyebrow">Linhas finais da ata</p><h2>Linhas ao final do documento</h2><p>Adicione ou remova as linhas da folha acima e escreva o texto que deve aparecer abaixo de cada traço.</p></div></div>
+<section id="assinaturas" class="card footer-lines-settings">
+    <div class="section-heading"><div><p class="eyebrow">Assinaturas da ata</p><h2>Espaços para assinatura</h2><p>Adicione ou remova espaços para assinar na folha acima. Escreva o nome ou cargo que aparecerá abaixo de cada traço.</p></div></div>
     <form method="post" action="/documentos/<?=e($period)?>/linhas-rodape" data-footer-lines-form>
         <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
         <input type="hidden" name="versao" value="<?=e($opening['linhas_rodape_versao'])?>">
         <div class="footer-lines-list" data-footer-lines-list>
             <?php foreach($footerLines as$index=>$line):?>
-            <div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Linha <?=e($index+1)?></span><input type="text" name="linhas[]" maxlength="300" value="<?=e($line)?>"></label><button type="button" data-remove-footer-line aria-label="Remover linha <?=e($index+1)?>">Remover</button></div>
+            <div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Assinatura <?=e($index+1)?></span><input type="text" name="linhas[]" maxlength="300" value="<?=e($line)?>" placeholder="Nome ou cargo de quem assina"></label><button type="button" data-remove-footer-line aria-label="Remover assinatura <?=e($index+1)?>">Remover</button></div>
             <?php endforeach;?>
         </div>
-        <template data-footer-line-template><div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Linha</span><input type="text" name="linhas[]" maxlength="300" value=""></label><button type="button" data-remove-footer-line>Remover</button></div></template>
-        <div class="footer-lines-actions"><button type="button" data-add-footer-line>Adicionar linha</button><button class="primary" type="submit">Salvar linhas</button></div>
-        <small class="helper" data-footer-lines-count aria-live="polite"><?=count($footerLines)?> linha(s). Salve para atualizar a visualização e a impressão.</small>
+        <template data-footer-line-template><div class="footer-line-row" data-footer-line-row><label><span data-footer-line-number>Assinatura</span><input type="text" name="linhas[]" maxlength="300" value="" placeholder="Nome ou cargo de quem assina"></label><button type="button" data-remove-footer-line>Remover</button></div></template>
+        <div class="footer-lines-actions"><button type="button" data-add-footer-line>Adicionar assinatura</button><button class="primary" type="submit">Salvar assinaturas</button></div>
+        <small class="helper" data-footer-lines-count aria-live="polite"><?=count($footerLines)?> <?=count($footerLines)===1?'assinatura':'assinaturas'?>. Salve para atualizar a visualização e a impressão.</small>
     </form>
 </section>
 <?php endif;?>

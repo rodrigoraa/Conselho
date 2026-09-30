@@ -169,7 +169,7 @@ final class CouncilDocumentServiceTest extends TestCase
         $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
         $admin=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
         self::assertStringContainsString('name="linhas[]"',$admin);
-        self::assertStringContainsString('Adicionar linha',$admin);
+        self::assertStringContainsString('Adicionar assinatura',$admin);
         $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
         $coord=$view->render('document',['document'=>$this->service->document(1,1,'COORDENADOR'),'period'=>1,'title'=>'Documento coletivo']);
         self::assertStringNotContainsString('name="linhas[]"',$coord);

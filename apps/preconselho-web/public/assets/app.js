@@ -19,9 +19,9 @@ if(footerLinesForm){
   const rows=()=>[...list.querySelectorAll('[data-footer-line-row]')];
   const refresh=()=>{
     const current=rows();
-    current.forEach((row,index)=>{row.querySelector('[data-footer-line-number]').textContent=`Linha ${index+1}`;row.querySelector('[data-remove-footer-line]').setAttribute('aria-label',`Remover linha ${index+1}`)});
+    current.forEach((row,index)=>{row.querySelector('[data-footer-line-number]').textContent=`Assinatura ${index+1}`;row.querySelector('[data-remove-footer-line]').setAttribute('aria-label',`Remover assinatura ${index+1}`)});
     addButton.disabled=current.length>=30;
-    countOutput.textContent=`${current.length} linha(s). Salve para atualizar a visualização e a impressão.`;
+    countOutput.textContent=`${current.length} ${current.length===1?'assinatura':'assinaturas'}. Salve para atualizar a visualização e a impressão.`;
   };
   addButton.addEventListener('click',()=>{if(rows().length>=30)return;const fragment=template.content.cloneNode(true);const row=fragment.querySelector('[data-footer-line-row]');list.append(fragment);dirty=true;refresh();row.querySelector('input').focus()});
   list.addEventListener('click',event=>{const button=event.target.closest('[data-remove-footer-line]');if(!button)return;const row=button.closest('[data-footer-line-row]');const next=row.nextElementSibling||row.previousElementSibling;row.remove();dirty=true;refresh();(next?.querySelector('input')||addButton).focus()});
