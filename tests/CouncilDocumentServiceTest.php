@@ -290,6 +290,69 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame(1,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='LIBERAR_REEDICAO_TURMA'")->fetchColumn());
     }
 
+    public function testAdministradorFinalizaProfessorPendenteSemTextoERegistraResponsavel(): void
+    {
+        $classId=$this->classId(10);
+        $lock=$this->service->acquireClassLock(1,$classId,3,'PROFESSOR');
+        self::assertTrue($lock['acquired']);
+
+        $this->service->finalizeParticipation(1,$classId,3,4,'ADMIN','127.0.0.1','test');
+        $rows=$this->db->query("SELECT professor_usuario_id,finalizado,finalizado_em,finalizado_por_admin_id FROM documento_turma_professores WHERE documento_turma_id=$classId ORDER BY professor_usuario_id")->fetchAll();
+        self::assertSame(0,(int)$rows[0]['finalizado']);
+        self::assertNull($rows[0]['finalizado_em']);
+        self::assertNull($rows[0]['finalizado_por_admin_id']);
+        self::assertSame(3,(int)$rows[1]['professor_usuario_id']);
+        self::assertSame(1,(int)$rows[1]['finalizado']);
+        self::assertNotEmpty($rows[1]['finalizado_em']);
+        self::assertSame(4,(int)$rows[1]['finalizado_por_admin_id']);
+        self::assertSame(0,(int)$this->db->query("SELECT COUNT(*) FROM documento_turma_bloqueios WHERE documento_turma_id=$classId AND usuario_id=3")->fetchColumn());
+
+        $audit=$this->db->query("SELECT usuario_id,dados_novos FROM auditoria WHERE acao='FINALIZAR_PARTICIPACAO_TURMA' ORDER BY id DESC LIMIT 1")->fetch();
+        self::assertSame(4,(int)$audit['usuario_id']);
+        $changes=json_decode($audit['dados_novos'],true,512,JSON_THROW_ON_ERROR);
+        self::assertSame(3,(int)$changes['professor_usuario_id']);
+        self::assertTrue($changes['finalizado']);
+
+        try{$this->service->collaborationState(1,$classId,3,'PROFESSOR');self::fail('Professor finalizado pela administração não pode editar.');}
+        catch(HttpException$exception){self::assertSame('CLASS_FINALIZED',$exception->errorCode);}
+        try{$this->service->saveClass(1,$classId,'Texto enviado após a finalização.',0,3,'PROFESSOR','127.0.0.1','test');self::fail('Gravação tardia do professor finalizado deve ser recusada.');}
+        catch(HttpException$exception){self::assertSame('CLASS_FINALIZED',$exception->errorCode);}
+        $this->service->reopenParticipation(1,$classId,3,1,'COORDENADOR','127.0.0.1','test');
+        $reopened=$this->db->query("SELECT finalizado,finalizado_em,finalizado_por_admin_id FROM documento_turma_professores WHERE documento_turma_id=$classId AND professor_usuario_id=3")->fetch();
+        self::assertSame(0,(int)$reopened['finalizado']);
+        self::assertNull($reopened['finalizado_em']);
+        self::assertNull($reopened['finalizado_por_admin_id']);
+        self::assertSame($classId,$this->service->collaborationState(1,$classId,3,'PROFESSOR')['class']);
+    }
+
+    public function testFinalizacaoAdministrativaRecusaOutrosPerfisEAlvosInvalidos(): void
+    {
+        $classId=$this->classId(10);
+        foreach([[1,'COORDENADOR'],[2,'PROFESSOR']] as [$actorId,$role]){
+            try{$this->service->finalizeParticipation(1,$classId,3,$actorId,$role,'127.0.0.1','test');self::fail('Somente ADMIN pode finalizar a participação de outro professor.');}
+            catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        }
+        foreach([[2,$classId,3],[1,$this->classId(20),3],[1,$classId,999]] as [$periodId,$targetClassId,$teacherId]){
+            try{$this->service->finalizeParticipation($periodId,$targetClassId,$teacherId,4,'ADMIN','127.0.0.1','test');self::fail('Participação fora da turma e período deve ser recusada.');}
+            catch(HttpException$exception){self::assertSame(404,$exception->status);}
+        }
+        self::assertSame(0,(int)$this->db->query("SELECT COUNT(*) FROM documento_turma_professores WHERE finalizado=1")->fetchColumn());
+        self::assertSame(0,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='FINALIZAR_PARTICIPACAO_TURMA'")->fetchColumn());
+    }
+
+    public function testFinalizacaoAdministrativaRecusaPeriodoEncerradoEProfessorJaFinalizado(): void
+    {
+        $classId=$this->classId(10);
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
+        try{$this->service->finalizeParticipation(1,$classId,3,4,'ADMIN','127.0.0.1','test');self::fail('Período encerrado não deve aceitar finalização.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);}
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ABERTO' WHERE id=1");
+        $this->service->finalizeParticipation(1,$classId,3,4,'ADMIN','127.0.0.1','test');
+        try{$this->service->finalizeParticipation(1,$classId,3,4,'ADMIN','127.0.0.1','test');self::fail('Professor já finalizado não deve produzir nova finalização.');}
+        catch(HttpException$exception){self::assertSame(409,$exception->status);}
+        self::assertSame(1,(int)$this->db->query("SELECT COUNT(*) FROM auditoria WHERE acao='FINALIZAR_PARTICIPACAO_TURMA'")->fetchColumn());
+    }
+
     public function testEstadoColaborativoRespeitaVinculoEFinalizacaoDoProfessor(): void
     {
         $classId=$this->classId(10);
@@ -347,6 +410,54 @@ final class CouncilDocumentServiceTest extends TestCase
             $claims=\PreConselho\Support\CollaborationToken::verify(html_entity_decode($matches[1]??'',ENT_QUOTES|ENT_HTML5,'UTF-8'),$secret);
             self::assertSame(3,$claims['sub']);self::assertSame('PROFESSOR',$claims['role']);
         }finally{putenv('COLLABORATION_SECRET');putenv('COLLABORATION_WS_URL');}
+    }
+
+    public function testBotaoDeFinalizacaoAdministrativaApareceApenasParaProfessorPendente(): void
+    {
+        $classId=$this->classId(10);
+        $action='/documentos/1/turmas/'.$classId.'/professores/3/finalizar';
+        $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+        $_SERVER['REQUEST_URI']='/documentos/1';
+
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
+        $admin=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringContainsString('action="'.$action.'"',$admin);
+        self::assertStringContainsString('>Finalizar participação</button>',$admin);
+
+        $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
+        $coordination=$view->render('document',['document'=>$this->service->document(1,1,'COORDENADOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('action="'.$action.'"',$coordination);
+
+        $_SESSION['user']=['id'=>3,'nome'=>'Professor Dois','perfil'=>'PROFESSOR'];
+        $teacher=$view->render('document',['document'=>$this->service->document(1,3,'PROFESSOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('action="'.$action.'"',$teacher);
+
+        $this->service->finalizeParticipation(1,$classId,3,4,'ADMIN','127.0.0.1','test');
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
+        $finished=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('action="'.$action.'"',$finished);
+        self::assertStringContainsString('Finalizado pela administração · Administração',$finished);
+
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
+        $closed=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('/professores/2/finalizar"',$closed);
+    }
+
+    public function testFinalizarProfessorPeloControllerExigeCsrfERedirecionaParaTurma(): void
+    {
+        $classId=$this->classId(10);
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
+        $controller=new WebController(new AppRepository($this->db),new View(dirname(__DIR__).'/apps/preconselho-web/resources/views'),new SecretariaApiClient());
+        $params=['periodo'=>1,'turma'=>$classId,'professor'=>3];
+        $path='/documentos/1/turmas/'.$classId.'/professores/3/finalizar';
+        try{$controller->finalizeClassParticipation(new Request('POST',$path,[],['_csrf'=>'inválido'],[]),$params);self::fail('CSRF inválido deveria ser recusado.');}
+        catch(HttpException$exception){self::assertSame(419,$exception->status);}
+        self::assertSame(0,(int)$this->db->query("SELECT finalizado FROM documento_turma_professores WHERE documento_turma_id=$classId AND professor_usuario_id=3")->fetchColumn());
+
+        $response=$controller->finalizeClassParticipation(new Request('POST',$path,[],['_csrf'=>Csrf::token()],[]),$params);
+        self::assertSame(302,$response->status);
+        self::assertSame('/documentos/1#turma-'.$classId,$response->headers['Location']);
+        self::assertSame(1,(int)$this->db->query("SELECT finalizado FROM documento_turma_professores WHERE documento_turma_id=$classId AND professor_usuario_id=3")->fetchColumn());
     }
 
     public function testAdministracaoVeTextoFinalEHistoricoDeAutoriaSemEditarTurma(): void

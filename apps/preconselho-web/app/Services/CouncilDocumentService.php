@@ -68,7 +68,7 @@ final class CouncilDocumentService
         foreach($classes as&$class){$class['edicoes']=$editsByClass[(int)$class['id']]??[];$class['segmentos']=$segmentsByClass[(int)$class['id']]??[];$class['bloqueio']=$locksByClass[(int)$class['id']]??null;}
         unset($class);
 
-        $completion=$this->repository->db->prepare("SELECT c.*,u.nome professor_nome,dt.turma_externa_id,dt.turma_nome_snapshot FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN usuarios u ON u.id=c.professor_usuario_id WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,u.nome COLLATE NOCASE");
+        $completion=$this->repository->db->prepare("SELECT c.*,u.nome professor_nome,ua.nome finalizado_por_admin_nome,dt.turma_externa_id,dt.turma_nome_snapshot FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN usuarios u ON u.id=c.professor_usuario_id LEFT JOIN usuarios ua ON ua.id=c.finalizado_por_admin_id WHERE dt.periodo_id=:periodo ORDER BY dt.turma_nome_snapshot COLLATE NOCASE,u.nome COLLATE NOCASE");
         $completion->execute([':periodo'=>$periodId]);
         $byClass=[];
         foreach($completion->fetchAll()as$row)$byClass[(int)$row['documento_turma_id']][]=$row;
@@ -187,9 +187,14 @@ final class CouncilDocumentService
 
         $db=$this->repository->db;$db->beginTransaction();
         try{
-            $statement=$db->prepare('UPDATE documento_turmas SET conteudo=:conteudo,versao=versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:turma AND periodo_id=:periodo AND versao=:versao');
-            $statement->execute([':conteudo'=>$content,':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId,':versao'=>$version]);
-            if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
+            $updateSql='UPDATE documento_turmas SET conteudo=:conteudo,versao=versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE id=:turma AND periodo_id=:periodo AND versao=:versao';
+            $updateParams=[':conteudo'=>$content,':usuario'=>$actorId,':turma'=>$classDocumentId,':periodo'=>$periodId,':versao'=>$version];
+            if($role==='PROFESSOR'){$updateSql.=' AND EXISTS(SELECT 1 FROM documento_turma_professores c WHERE c.documento_turma_id=documento_turmas.id AND c.professor_usuario_id=:professor AND c.finalizado=0)';$updateParams[':professor']=$actorId;}
+            $statement=$db->prepare($updateSql);$statement->execute($updateParams);
+            if($statement->rowCount()!==1){
+                if($role==='PROFESSOR'){$state=$db->prepare('SELECT finalizado FROM documento_turma_professores WHERE documento_turma_id=:turma AND professor_usuario_id=:professor');$state->execute([':turma'=>$classDocumentId,':professor'=>$actorId]);if((bool)$state->fetchColumn())throw new HttpException(422,'CLASS_FINALIZED','A coordenação ou administração precisa liberar uma nova edição.');}
+                throw new HttpException(409,'VERSION_CONFLICT','O texto desta turma foi atualizado por outro professor. Recarregue a página antes de continuar.');
+            }
             $fresh=$db->prepare('SELECT versao,atualizado_em FROM documento_turmas WHERE id=:turma');$fresh->execute([':turma'=>$classDocumentId]);$saved=$fresh->fetch();
             $db->prepare('DELETE FROM documento_turma_segmentos WHERE documento_turma_id=:turma')->execute([':turma'=>$classDocumentId]);
             $segmentInsert=$db->prepare('INSERT INTO documento_turma_segmentos(documento_turma_id,ordem,autor_usuario_id,autor_nome_snapshot,conteudo)VALUES(:turma,:ordem,:usuario,:autor,:conteudo)');
@@ -207,12 +212,36 @@ final class CouncilDocumentService
         if(!$finalize)throw new HttpException(403,'REOPEN_REQUIRES_COORDINATION','Somente a coordenação ou a administração pode liberar uma nova edição.');
         $row=$this->editableClass($periodId,$classDocumentId,$actorId,$role);
         if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','Este período não está aberto.');
+        if((bool)$row['finalizado'])throw new HttpException(409,'CLASS_ALREADY_FINALIZED','Sua participação nesta turma já foi finalizada.');
         if($finalize&&trim((string)$row['conteudo'])==='')throw new HttpException(422,'CONTENT_REQUIRED','Escreva no texto da turma antes de finalizar.');
         $db=$this->repository->db;$db->beginTransaction();
         try{
-            $db->prepare('UPDATE documento_turma_professores SET finalizado=:finalizado,finalizado_em=CASE WHEN :finalizado=1 THEN CURRENT_TIMESTAMP ELSE NULL END,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:usuario')->execute([':finalizado'=>$finalize?1:0,':turma'=>$classDocumentId,':usuario'=>$actorId]);
+            $updated=$db->prepare('UPDATE documento_turma_professores SET finalizado=1,finalizado_em=CURRENT_TIMESTAMP,finalizado_por_admin_id=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:usuario AND finalizado=0');
+            $updated->execute([':turma'=>$classDocumentId,':usuario'=>$actorId]);
+            if($updated->rowCount()!==1)throw new HttpException(409,'CLASS_ALREADY_FINALIZED','Sua participação nesta turma já foi finalizada.');
             $db->prepare('DELETE FROM documento_turma_bloqueios WHERE documento_turma_id=:turma AND usuario_id=:usuario')->execute([':turma'=>$classDocumentId,':usuario'=>$actorId]);
             $this->repository->audit($actorId,$finalize?'FINALIZAR_TURMA':'REABRIR_TURMA','documento_turmas',$classDocumentId,['finalizado'=>(bool)$row['finalizado']],['finalizado'=>$finalize],$ip,$userAgent);
+            $db->commit();
+        }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
+    }
+
+    public function finalizeParticipation(int $periodId,int $classDocumentId,int $teacherId,int $actorId,string $role,string $ip,string $userAgent): void
+    {
+        if($role!=='ADMIN')throw new HttpException(403,'FORBIDDEN','Somente a administração pode finalizar a participação de um professor.');
+        $statement=$this->repository->db->prepare('SELECT c.id,c.finalizado,p.status periodo_status FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE c.documento_turma_id=:turma AND c.professor_usuario_id=:professor AND dt.periodo_id=:periodo');
+        $statement->execute([':turma'=>$classDocumentId,':professor'=>$teacherId,':periodo'=>$periodId]);$row=$statement->fetch();
+        if(!$row)throw new HttpException(404,'PARTICIPATION_NOT_FOUND','Participação do professor não encontrada nesta turma.');
+        if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','O período precisa estar aberto para finalizar a participação.');
+        if((bool)$row['finalizado'])throw new HttpException(409,'CLASS_ALREADY_FINALIZED','A participação deste professor já foi finalizada.');
+        $db=$this->repository->db;$db->beginTransaction();
+        try{
+            $updated=$db->prepare("UPDATE documento_turma_professores SET finalizado=1,finalizado_em=CURRENT_TIMESTAMP,finalizado_por_admin_id=:admin,atualizado_em=CURRENT_TIMESTAMP WHERE id=:participacao AND finalizado=0 AND EXISTS(SELECT 1 FROM documento_turmas dt JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE dt.id=:turma AND dt.periodo_id=:periodo AND p.status='ABERTO')");
+            $updated->execute([':admin'=>$actorId,':participacao'=>$row['id'],':turma'=>$classDocumentId,':periodo'=>$periodId]);
+            if($updated->rowCount()!==1)throw new HttpException(409,'PARTICIPATION_CHANGED','A participação mudou em outra sessão. Recarregue a página.');
+            $db->prepare('DELETE FROM documento_turma_bloqueios WHERE documento_turma_id=:turma AND usuario_id=:professor')->execute([':turma'=>$classDocumentId,':professor'=>$teacherId]);
+            $before=['periodo_id'=>$periodId,'documento_turma_id'=>$classDocumentId,'professor_usuario_id'=>$teacherId,'finalizado'=>false];
+            $after=$before;$after['finalizado']=true;$after['finalizado_por_admin_id']=$actorId;
+            $this->repository->audit($actorId,'FINALIZAR_PARTICIPACAO_TURMA','documento_turma_professores',(int)$row['id'],$before,$after,$ip,$userAgent);
             $db->commit();
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
@@ -220,14 +249,14 @@ final class CouncilDocumentService
     public function reopenParticipation(int $periodId,int $classDocumentId,int $teacherId,int $actorId,string $role,string $ip,string $userAgent): void
     {
         if(!in_array($role,['ADMIN','COORDENADOR'],true))throw new HttpException(403,'FORBIDDEN','Somente a coordenação ou a administração pode liberar uma nova edição.');
-        $statement=$this->repository->db->prepare('SELECT c.finalizado,p.status periodo_status FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE c.documento_turma_id=:turma AND c.professor_usuario_id=:professor AND dt.periodo_id=:periodo');
+        $statement=$this->repository->db->prepare('SELECT c.id,c.finalizado,c.finalizado_por_admin_id,p.status periodo_status FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE c.documento_turma_id=:turma AND c.professor_usuario_id=:professor AND dt.periodo_id=:periodo');
         $statement->execute([':turma'=>$classDocumentId,':professor'=>$teacherId,':periodo'=>$periodId]);$row=$statement->fetch();
         if(!$row)throw new HttpException(404,'PARTICIPATION_NOT_FOUND','Participação do professor não encontrada nesta turma.');
         if($row['periodo_status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','O período precisa estar aberto para liberar uma nova edição.');
         $db=$this->repository->db;$db->beginTransaction();
         try{
-            $db->prepare('UPDATE documento_turma_professores SET finalizado=0,finalizado_em=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:professor')->execute([':turma'=>$classDocumentId,':professor'=>$teacherId]);
-            $this->repository->audit($actorId,'LIBERAR_REEDICAO_TURMA','documento_turma_professores',$classDocumentId,['professor_usuario_id'=>$teacherId,'finalizado'=>(bool)$row['finalizado']],['professor_usuario_id'=>$teacherId,'finalizado'=>false],$ip,$userAgent);
+            $db->prepare('UPDATE documento_turma_professores SET finalizado=0,finalizado_em=NULL,finalizado_por_admin_id=NULL,atualizado_em=CURRENT_TIMESTAMP WHERE documento_turma_id=:turma AND professor_usuario_id=:professor')->execute([':turma'=>$classDocumentId,':professor'=>$teacherId]);
+            $this->repository->audit($actorId,'LIBERAR_REEDICAO_TURMA','documento_turma_professores',$classDocumentId,['professor_usuario_id'=>$teacherId,'finalizado'=>(bool)$row['finalizado'],'finalizado_por_admin_id'=>$row['finalizado_por_admin_id']],['professor_usuario_id'=>$teacherId,'finalizado'=>false,'finalizado_por_admin_id'=>null],$ip,$userAgent);
             $db->commit();
         }catch(Throwable$exception){if($db->inTransaction())$db->rollBack();throw$exception;}
     }
