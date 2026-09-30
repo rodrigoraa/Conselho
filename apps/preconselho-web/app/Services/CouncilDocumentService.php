@@ -10,6 +10,8 @@ use Throwable;
 final class CouncilDocumentService
 {
     private const LOCK_SECONDS=60;
+    private const DEFAULT_COORDINATION_SIGNATURE='Coordenação pedagógica';
+    private const DEFAULT_MANAGEMENT_SIGNATURE='Gestão escolar';
     private const OPENING_TEMPLATE='No dia ___ de __________ de ______, às ______ horas, reuniram-se nas dependências da Escola Estadual São José a direção, a coordenação pedagógica e os professores do turno __________ para deliberar sobre o Conselho de Classe referente ao __________ bimestre. Foram tratados assuntos relacionados à aprendizagem dos estudantes. A diretora Claudia Regina realizou a abertura, dando as boas-vindas e agradecendo a presença de todos. A seguir, foram registradas as observações das turmas.';
 
     public function __construct(private readonly AppRepository $repository) {}
@@ -71,11 +73,12 @@ final class CouncilDocumentService
         $byClass=[];
         foreach($completion->fetchAll()as$row)$byClass[(int)$row['documento_turma_id']][]=$row;
         $openingStatement=$this->repository->db->prepare('SELECT da.*,u.nome atualizado_por_nome FROM documento_aberturas da LEFT JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$openingStatement->execute([':periodo'=>$periodId]);
-        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'titulo'=>null,'titulo_versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
+        $opening=$openingStatement->fetch()?:['periodo_id'=>$periodId,'texto'=>'','versao'=>1,'titulo'=>null,'titulo_versao'=>1,'assinatura_coordenacao'=>null,'assinatura_gestao'=>null,'assinaturas_versao'=>1,'atualizado_por'=>null,'atualizado_por_nome'=>null,'atualizado_em'=>null];
         $defaultTitle=self::defaultDocumentTitle($period);
         $title=trim((string)($opening['titulo']??''));
         if($title==='')$title=$defaultTitle;
-        return compact('period','classes','opening','title','defaultTitle')+['conclusoes'=>$byClass];
+        $signatures=['coordination'=>$opening['assinatura_coordenacao']??self::DEFAULT_COORDINATION_SIGNATURE,'management'=>$opening['assinatura_gestao']??self::DEFAULT_MANAGEMENT_SIGNATURE];
+        return compact('period','classes','opening','title','defaultTitle','signatures')+['conclusoes'=>$byClass];
     }
 
     public function saveOpening(int $periodId,string $text,int $version,int $actorId,string $role): array
@@ -104,6 +107,18 @@ final class CouncilDocumentService
         if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','O título foi alterado em outra sessão. Recarregue a página.');
         $fresh=$this->repository->db->prepare('SELECT da.titulo_versao,da.atualizado_em,u.nome atualizado_por_nome FROM documento_aberturas da JOIN usuarios u ON u.id=da.atualizado_por WHERE da.periodo_id=:periodo');$fresh->execute([':periodo'=>$periodId]);$saved=$fresh->fetch();
         return['version'=>(int)$saved['titulo_versao'],'title'=>$title===''?self::defaultDocumentTitle($period):$title,'saved_at'=>date('H:i',strtotime($saved['atualizado_em'])),'updated_by'=>$saved['atualizado_por_nome']];
+    }
+
+    public function saveSignatures(int $periodId,string $coordination,string $management,int $version,int $actorId,string $role): void
+    {
+        if($role!=='ADMIN')throw new HttpException(403,'FORBIDDEN','Somente a administração pode editar as assinaturas da ata.');
+        $period=$this->period($periodId);
+        if($period['status']!=='ABERTO')throw new HttpException(422,'DOCUMENT_LOCKED','As assinaturas só podem ser editadas durante o período aberto.');
+        $coordination=trim($coordination);$management=trim($management);
+        if(mb_strlen($coordination)>300||mb_strlen($management)>300)throw new HttpException(422,'SIGNATURE_TOO_LONG','Cada legenda de assinatura deve ter no máximo 300 caracteres.');
+        $statement=$this->repository->db->prepare('UPDATE documento_aberturas SET assinatura_coordenacao=:coordenacao,assinatura_gestao=:gestao,assinaturas_versao=assinaturas_versao+1,atualizado_por=:usuario,atualizado_em=CURRENT_TIMESTAMP WHERE periodo_id=:periodo AND assinaturas_versao=:versao');
+        $statement->execute([':coordenacao'=>$coordination,':gestao'=>$management,':usuario'=>$actorId,':periodo'=>$periodId,':versao'=>$version]);
+        if($statement->rowCount()!==1)throw new HttpException(409,'VERSION_CONFLICT','As assinaturas foram alteradas em outra sessão. Recarregue a página.');
     }
 
     public function acquireClassLock(int $periodId,int $classDocumentId,int $actorId,string $role,string $currentToken=''): array

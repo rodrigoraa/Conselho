@@ -132,6 +132,51 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertTrue($saved['success']);self::assertSame(2,$saved['version']);self::assertSame('Ata salva',$saved['title']);self::assertSame('Coordenação',$saved['updated_by']);
     }
 
+    public function testAdministradorPersonalizaLegendasNasDuasFolhasSemAlterarTituloOuAbertura(): void
+    {
+        $document=$this->service->document(1,4,'ADMIN');
+        self::assertSame(['coordination'=>'Coordenação pedagógica','management'=>'Gestão escolar'],$document['signatures']);
+        $openingText=$document['opening']['texto'];
+        try{$this->service->saveSignatures(1,'Coordenação','Gestão',1,1,'COORDENADOR');self::fail('Coordenação não deve editar as assinaturas.');}
+        catch(HttpException$exception){self::assertSame(403,$exception->status);}
+        $this->service->saveSignatures(1,'  Maria <Diretora>  ','Equipe gestora',1,4,'ADMIN');
+        $document=$this->service->document(1,2,'PROFESSOR');
+        self::assertSame(['coordination'=>'Maria <Diretora>','management'=>'Equipe gestora'],$document['signatures']);
+        self::assertSame(2,(int)$document['opening']['assinaturas_versao']);
+        self::assertSame(1,(int)$document['opening']['versao']);
+        self::assertSame(1,(int)$document['opening']['titulo_versao']);
+        self::assertSame($openingText,$document['opening']['texto']);
+        $view=new View(dirname(__DIR__).'/apps/preconselho-web/resources/views');
+        $_SERVER['REQUEST_URI']='/documentos/1';
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
+        $admin=$view->render('document',['document'=>$this->service->document(1,4,'ADMIN'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringContainsString('name="assinatura_coordenacao"',$admin);
+        self::assertSame(2,substr_count($admin,'<footer class="paper-signatures"><p><span></span>Maria &lt;Diretora&gt;</p><p><span></span>Equipe gestora</p></footer>'));
+        $_SESSION['user']=['id'=>1,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];
+        $coord=$view->render('document',['document'=>$this->service->document(1,1,'COORDENADOR'),'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('name="assinatura_coordenacao"',$coord);
+        $_SESSION['user']=['id'=>2,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];
+        $teacher=$view->render('document',['document'=>$document,'period'=>1,'title'=>'Documento coletivo']);
+        self::assertStringNotContainsString('name="assinatura_coordenacao"',$teacher);
+        self::assertSame(2,substr_count($teacher,'Maria &lt;Diretora&gt;'));
+        try{$this->service->saveSignatures(1,'Texto antigo','Outro',1,4,'ADMIN');self::fail('A versão anterior deveria causar conflito.');}
+        catch(HttpException$exception){self::assertSame(409,$exception->status);}
+        $this->db->exec("UPDATE periodos_pre_conselho SET status='ENCERRADO' WHERE id=1");
+        try{$this->service->saveSignatures(1,'Fechado','Fechado',2,4,'ADMIN');self::fail('Período encerrado deveria bloquear edição.');}
+        catch(HttpException$exception){self::assertSame(422,$exception->status);}
+    }
+
+    public function testSalvarLegendasExigeCsrfEAdministrador(): void
+    {
+        $controller=new WebController(new AppRepository($this->db),new View(dirname(__DIR__).'/apps/preconselho-web/resources/views'),new SecretariaApiClient());
+        $body=['_csrf'=>Csrf::token(),'assinatura_coordenacao'=>'Nova coordenação','assinatura_gestao'=>'Nova gestão','versao'=>1];
+        $_SESSION['user']=['id'=>4,'nome'=>'Administração','perfil'=>'ADMIN'];
+        try{$controller->saveSignatures(new Request('POST','/documentos/1/assinaturas',[],['_csrf'=>'inválido']+$body,[]),['periodo'=>1]);self::fail('CSRF inválido deveria ser recusado.');}
+        catch(HttpException$exception){self::assertSame(419,$exception->status);}
+        $controller->saveSignatures(new Request('POST','/documentos/1/assinaturas',[],$body,[]),['periodo'=>1]);
+        self::assertSame('Nova coordenação',$this->service->document(1,4,'ADMIN')['signatures']['coordination']);
+    }
+
     public function testSegundoProfessorInsereNoMeioDoMesmoTextoLivreDaTurma(): void
     {
         $classId=$this->classId(10);
