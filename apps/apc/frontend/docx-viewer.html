@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Pré-visualização do documento Word</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#e9eef1;color:#173f5f;font-family:system-ui,sans-serif}
+    .toolbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:center;gap:.6rem;min-height:3.3rem;padding:.5rem;background:#fff;border-bottom:1px solid #bccbd4}
+    button{padding:.45rem .7rem;border:1px solid #9cb0bd;border-radius:.35rem;background:#fff;color:#173f5f;font:inherit;cursor:pointer}button:focus-visible{outline:3px solid #2871a0;outline-offset:2px}output{min-width:3rem;text-align:center;font-size:.85rem}
+    #document{overflow:auto;min-height:calc(100vh - 3.3rem)}.docx-wrapper{padding:18px!important;min-width:max-content}.docx-wrapper>section.docx{margin-bottom:18px!important}
+    [hidden]{display:none!important}
+  </style>
+  <script src="/assets/apc-docx-viewer.js?v={{version}}" defer></script>
+</head>
+<body>
+  <nav class="toolbar" aria-label="Ampliação do documento" hidden id="toolbar">
+    <button type="button" id="zoom-out" aria-label="Diminuir documento">−</button>
+    <output id="zoom-value" aria-live="polite">100%</output>
+    <button type="button" id="zoom-in" aria-label="Ampliar documento">+</button>
+    <button type="button" id="zoom-fit">Ajustar à largura</button>
+  </nav>
+  <main id="document" aria-label="Conteúdo do documento Word"></main>
+</body>
+</html>

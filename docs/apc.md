@@ -179,6 +179,8 @@ sudo -u www-data php scripts/console.php apc-importar-calendario
 /apc                           formulário e arquivos enviados
 /apc/calendario                calendário mensal
 /apc/eventos/{id}              detalhe do evento
+/apc/envios/{id}/visualizar    prévia privada do arquivo enviado
+/apc/envios/{id}/conteudo      conteúdo privado para o visualizador
 /apc/envios/{id}/arquivo       download privado e autorizado
 /apc/admin                     eventos e auditoria (ADMIN)
 /apc/admin/horarios            versões da grade semanal (ADMIN)
@@ -217,6 +219,25 @@ Arquivos nunca são gravados em `public/`. O serviço:
 - usa staging, transação e rollback;
 - restringe download ao professor proprietário, coordenação ou administração;
 - responde com `Cache-Control: private, no-store` e `Content-Disposition: attachment`.
+
+### Pré-visualização de DOCX
+
+PDF e imagens usam os visualizadores do navegador. DOCX usa `docx-preview` empacotado nos assets locais, tanto na conferência antes do envio quanto na visualização de arquivos já enviados. DOC e ODT continuam disponíveis por download.
+
+O documento original não é convertido, sobrescrito nem enviado a serviços externos. Na conferência local, os bytes vêm do arquivo selecionado; após o envio, são obtidos pela rota autenticada `/apc/envios/{id}/conteudo`, com as mesmas permissões do download e `Cache-Control: private, no-store`. Isso funciona com armazenamento local ou Google Drive.
+
+A renderização ocorre em iframe com `sandbox="allow-scripts"`, sem acesso à origem da aplicação. A CSP desse visualizador bloqueia conexões, frames internos, formulários e recursos externos; HTML incorporado (`altChunks`) e navegação por links ficam desativados. A CSP global do Conselho não muda.
+
+A tela oferece ajuste à largura e ampliação, inclusive em telas pequenas. Documentos inválidos exibem uma mensagem e mantêm o acesso ao original. A prévia pode diferir da formatação/paginação do Word, conforme as [limitações da biblioteca](https://github.com/VolodymyrBaydalka/docxjs#breaks).
+
+Para reconstruir os assets:
+
+```bash
+npm ci
+npm run apc:build
+```
+
+O build produz `apc-docx-viewer.html`, `apc-docx-viewer.js`, seus avisos `.LEGAL.txt` e `apc-docx-licenses.txt` em `apps/preconselho-web/public/assets/`. Esses arquivos acompanham o código na implantação; Node é necessário apenas para reconstruí-los. Essa funcionalidade não exige migração de banco nem conversor de documentos no servidor.
 
 Variáveis:
 

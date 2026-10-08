@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "apc:build": "node scripts/build-apc-preview.mjs",
     "build": "esbuild collaboration/client.js --bundle --minify --outfile=apps/preconselho-web/public/assets/collaboration.js",
     "collaboration:start": "node --env-file-if-exists=.env collaboration/server.mjs",
     "collaboration:check": "node --check collaboration/server.mjs && node --check collaboration/client.js",
@@ -21,6 +22,7 @@
     "@tiptap/extension-paragraph": "3.29.2",
     "@tiptap/extension-text": "3.29.2",
     "diff": "9.0.0",
+    "docx-preview": "0.4.1",
     "yjs": "13.6.32"
   },
   "devDependencies": {

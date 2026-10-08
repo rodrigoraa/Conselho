@@ -39,6 +39,41 @@ menuButton?.addEventListener('click',()=>setMenuOpen(menuButton.getAttribute('ar
 mainNav?.querySelectorAll('a').forEach(link=>link.addEventListener('click',()=>setMenuOpen(false)));
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&menuButton?.getAttribute('aria-expanded')==='true'){setMenuOpen(false);menuButton.focus()}});
 
+const apcDocxMime='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const apcDocxPreviews=new Map();
+document.querySelectorAll('[data-apc-docx-preview]').forEach(container=>{
+  const status=container.querySelector('[data-apc-docx-status]');
+  const template=container.querySelector('[data-apc-docx-template]');
+  let frame=null,listener=null,timer=null,abort=null,generation=0;
+  const stop=()=>{if(listener)window.removeEventListener('message',listener);listener=null;clearTimeout(timer);timer=null;abort?.abort();abort=null};
+  const reset=()=>{generation++;stop();frame?.remove();frame=null;if(status){status.hidden=false;status.textContent='Carregando a pré-visualização do documento…'}container.removeAttribute('aria-busy')};
+  const render=loadBuffer=>{
+    reset();const current=generation;abort=new AbortController();const signal=abort.signal;
+    const fail=()=>{if(current!==generation)return;stop();frame?.remove();frame=null;container.removeAttribute('aria-busy');if(status){status.hidden=false;status.textContent='Não foi possível gerar a prévia deste DOCX. Abra o arquivo original em um aplicativo compatível.'}};
+    frame=template?.content.querySelector('iframe')?.cloneNode(true);if(!frame){fail();return}
+    container.setAttribute('aria-busy','true');let sent=false;
+    listener=async event=>{
+      // The sandbox has an opaque origin; only messages from this frame are accepted.
+      if(event.source!==frame?.contentWindow||event.origin!=='null'||event.data?.type!=='apc-docx-preview')return;
+      if(event.data.state==='ready'&&!sent){
+        sent=true;
+        try{const buffer=await loadBuffer(signal);if(current!==generation||signal.aborted)return;frame.contentWindow.postMessage({type:'apc-docx-render',buffer},'*',[buffer])}catch{fail()}
+      }else if(event.data.state==='rendered'&&sent){stop();container.removeAttribute('aria-busy');if(status)status.hidden=true}
+      else if(event.data.state==='error')fail();
+    };
+    window.addEventListener('message',listener);timer=setTimeout(fail,45000);status?.after(frame);
+  };
+  apcDocxPreviews.set(container,{render,reset});
+  window.addEventListener('pagehide',event=>{if(!event.persisted)reset()});
+  const source=container.dataset.docxSource;
+  if(source)render(async signal=>{
+    if(!/^\/apc\/envios\/\d+\/conteudo$/.test(source))throw new Error('Origem inválida.');
+    const response=await fetch(source,{credentials:'same-origin',cache:'no-store',signal});
+    if(!response.ok||response.headers.get('Content-Type')?.split(';')[0]!==apcDocxMime)throw new Error('Arquivo indisponível.');
+    return response.arrayBuffer();
+  });
+});
+
 const apcSubmission=document.querySelector('[data-apc-submission]');
 if(apcSubmission){
   const eventField=apcSubmission.querySelector('[data-submission-event]');
@@ -52,6 +87,7 @@ if(apcSubmission){
   const previewPdfMobile=apcSubmission.querySelector('[data-apc-preview-pdf-mobile]');
   const openPdf=apcSubmission.querySelector('[data-apc-open-pdf]');
   const previewImage=apcSubmission.querySelector('[data-apc-preview-image]');
+  const previewDocx=apcSubmission.querySelector('[data-apc-docx-preview]');
   const previewUnavailable=apcSubmission.querySelector('[data-apc-preview-unavailable]');
   const confirmSubmit=apcSubmission.querySelector('[data-apc-confirm-submit]');
   let previewUrl='';
@@ -70,6 +106,7 @@ if(apcSubmission){
     if(previewPdfMobile)previewPdfMobile.hidden=true;
     if(openPdf)openPdf.removeAttribute('href');
     if(previewImage){previewImage.hidden=true;previewImage.removeAttribute('src')}
+    if(previewDocx){apcDocxPreviews.get(previewDocx)?.reset();previewDocx.hidden=true}
     if(previewUnavailable)previewUnavailable.hidden=true;
     if(review)review.hidden=true;
     if(confirmSubmit)confirmSubmit.disabled=true;
@@ -83,6 +120,7 @@ if(apcSubmission){
     refreshReviewContext();previewUrl=URL.createObjectURL(file);const lowerName=file.name.toLocaleLowerCase('pt-BR');
     if(file.type==='application/pdf'||lowerName.endsWith('.pdf')){if(previewPdf){previewPdf.src=previewUrl;previewPdf.hidden=false}if(openPdf)openPdf.href=previewUrl;if(previewPdfMobile)previewPdfMobile.hidden=false}
     else if(file.type.startsWith('image/')||/\.(?:jpe?g|png|webp)$/i.test(lowerName)){if(previewImage){previewImage.src=previewUrl;previewImage.alt=`Pré-visualização de ${file.name}`;previewImage.hidden=false}}
+    else if(file.type===apcDocxMime||lowerName.endsWith('.docx')){clearPreviewUrl();if(previewDocx){previewDocx.hidden=false;apcDocxPreviews.get(previewDocx)?.render(()=>file.arrayBuffer())}}
     else{clearPreviewUrl();if(previewUnavailable)previewUnavailable.hidden=false}
     if(review)review.hidden=false;if(confirmSubmit)confirmSubmit.disabled=false;review?.scrollIntoView({behavior:'smooth',block:'nearest'});
   };

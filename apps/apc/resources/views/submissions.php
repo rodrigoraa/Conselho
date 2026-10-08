@@ -40,7 +40,8 @@ $user=$_SESSION['user'];$firstName=explode(' ',trim((string)$user['nome']))[0];$
             <iframe title="Pré-visualização local do PDF selecionado" data-apc-preview-pdf hidden></iframe>
             <div class="apc-preview-pdf-mobile" data-apc-preview-pdf-mobile hidden><span aria-hidden="true">PDF</span><div><strong>PDF pronto para conferência</strong><p>Abra o arquivo em tela cheia no visualizador do seu celular. Depois, volte para esta página para confirmar o envio.</p><a class="button primary" href="#" target="_blank" rel="noopener" data-apc-open-pdf>Abrir PDF para conferir</a></div></div>
             <img alt="Pré-visualização local do arquivo selecionado" data-apc-preview-image hidden>
-            <div class="apc-preview-unavailable" data-apc-preview-unavailable hidden><span aria-hidden="true">DOC</span><div><strong>Pré-visualização interna indisponível para este formato</strong><p>O arquivo foi selecionado corretamente. Para conferir documentos Word ou ODT, abra-o no seu computador antes de confirmar.</p></div></div>
+            <?php $docxHidden=true;require __DIR__.'/docx_preview.php';unset($docxHidden);?>
+            <div class="apc-preview-unavailable" data-apc-preview-unavailable hidden><span aria-hidden="true">DOC</span><div><strong>Pré-visualização interna indisponível para este formato</strong><p>O arquivo foi selecionado corretamente. Para conferir documentos DOC ou ODT, abra-o no seu computador antes de confirmar.</p></div></div>
         </div>
         <p class="apc-preview-privacy"><span aria-hidden="true">✓</span> A prévia é feita apenas neste navegador. O envio ao sistema acontece somente após sua confirmação.</p>
     </section>

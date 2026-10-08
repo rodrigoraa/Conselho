@@ -11,7 +11,7 @@ use Shared\Support\View;
 
 final class SubmissionController
 {
-    private const PREVIEWABLE_MIMES=['application/pdf','image/jpeg','image/png','image/webp'];
+    private const PREVIEWABLE_MIMES=['application/pdf','image/jpeg','image/png','image/webp','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 
     public function __construct(private readonly SubmissionService$service,private readonly SubmissionRepository$submissions,private readonly AccessRepository$access,private readonly View$view) {}
 
@@ -44,7 +44,7 @@ final class SubmissionController
 
     public function preview(Request$request,array$params):Response
     {
-        $submission=$this->service->file((int)$params['id'],$_SESSION['user']);$previewable=in_array((string)$submission['mime_type'],self::PREVIEWABLE_MIMES,true);$isImage=str_starts_with((string)$submission['mime_type'],'image/');return new Response($this->view->render('submission_preview',compact('submission','previewable','isImage')+['title'=>'Visualizar APC']));
+        $submission=$this->service->file((int)$params['id'],$_SESSION['user']);$previewable=in_array((string)$submission['mime_type'],self::PREVIEWABLE_MIMES,true);$isImage=str_starts_with((string)$submission['mime_type'],'image/');$isDocx=(string)$submission['mime_type']==='application/vnd.openxmlformats-officedocument.wordprocessingml.document';return new Response($this->view->render('submission_preview',compact('submission','previewable','isImage','isDocx')+['title'=>'Visualizar APC']));
     }
 
     public function content(Request$request,array$params):Response

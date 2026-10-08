@@ -21,9 +21,76 @@ final class ApcSubmissionPreviewTest extends ApcTestCase
         $controller=$this->controller('application/pdf','pdf','%PDF-1.4 preview');$_SESSION['user']=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/envios/1/visualizar';$preview=$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);self::assertStringContainsString('Conteúdo da APC',$preview->body);self::assertStringContainsString('/apc/envios/1/conteudo',$preview->body);self::assertStringContainsString('Visualizar envio',$preview->body);self::assertStringNotContainsString('/apc/envios/1/excluir',$preview->body);$content=$controller->content(new Request('GET','/apc/envios/1/conteudo',[],[],[]),['id'=>1]);self::assertSame('%PDF-1.4 preview',$content->body);self::assertStringStartsWith('inline;',$content->headers['Content-Disposition']);self::assertSame('SAMEORIGIN',$content->headers['X-Frame-Options']);$_SESSION['user']=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];$coordination=$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);self::assertStringContainsString('Professor Um',$coordination->body);self::assertStringContainsString('/apc/envios/1/excluir',$coordination->body);
     }
 
-    public function testAnotherTeacherCannotPreviewAndUnsupportedDocumentUsesSafeFallback():void
+    public function testOwnerAndManagementCanPreviewDocxAndFetchOriginalContents():void
     {
-        $controller=$this->controller('application/vnd.openxmlformats-officedocument.wordprocessingml.document','docx','documento');$_SESSION['user']=['id'=>4,'nome'=>'Professor Dois','perfil'=>'PROFESSOR'];try{$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);self::fail('Outro professor não deveria visualizar este arquivo.');}catch(HttpException$exception){self::assertSame(403,$exception->status);}$_SESSION['user']=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$preview=$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);self::assertStringContainsString('Este formato não abre diretamente no navegador',$preview->body);self::assertStringContainsString('Enviado por você para',$preview->body);try{$controller->content(new Request('GET','/apc/envios/1/conteudo',[],[],[]),['id'=>1]);self::fail('DOCX não deveria ser servido como conteúdo inline.');}catch(HttpException$exception){self::assertSame(415,$exception->status);self::assertSame('APC_PREVIEW_UNSUPPORTED',$exception->errorCode);}
+        $mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        $contents="PK\x03\x04documento original\x00";
+        $controller=$this->controller($mime,'docx',$contents);
+        $_SERVER['REQUEST_URI']='/apc/envios/1/visualizar';
+
+        foreach([
+            ['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],
+            ['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'],
+            ['id'=>1,'nome'=>'Admin','perfil'=>'ADMIN'],
+        ]as$user){
+            $_SESSION['user']=$user;
+            $preview=$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);
+            self::assertStringContainsString('data-apc-docx-preview',$preview->body);
+            self::assertStringContainsString('data-docx-source="/apc/envios/1/conteudo"',$preview->body);
+            self::assertStringContainsString('data-apc-docx-template',$preview->body);
+            self::assertStringContainsString('<iframe',$preview->body);
+            self::assertStringContainsString('sandbox="allow-scripts"',$preview->body);
+            self::assertStringContainsString('src="/assets/apc-docx-viewer.html?',$preview->body);
+            self::assertStringContainsString('/apc/envios/1/arquivo',$preview->body);
+            self::assertStringNotContainsString('Este formato não abre diretamente no navegador',$preview->body);
+            $content=$controller->content(new Request('GET','/apc/envios/1/conteudo',[],[],[]),['id'=>1]);
+            self::assertSame($contents,$content->body);
+            self::assertSame($mime,$content->headers['Content-Type']);
+            self::assertSame((string)strlen($contents),$content->headers['Content-Length']);
+            self::assertStringStartsWith('inline;',$content->headers['Content-Disposition']);
+            self::assertSame('private, no-store',$content->headers['Cache-Control']);
+            self::assertSame('nosniff',$content->headers['X-Content-Type-Options']);
+            self::assertSame('SAMEORIGIN',$content->headers['X-Frame-Options']);
+            $download=$controller->download(new Request('GET','/apc/envios/1/arquivo',[],[],[]),['id'=>1]);
+            self::assertSame($contents,$download->body);
+            self::assertStringStartsWith('attachment;',$download->headers['Content-Disposition']);
+        }
+    }
+
+    public function testAnotherTeacherCannotPreviewFetchOrDownloadDocx():void
+    {
+        $controller=$this->controller('application/vnd.openxmlformats-officedocument.wordprocessingml.document','docx','documento');
+        $_SESSION['user']=['id'=>4,'nome'=>'Professor Dois','perfil'=>'PROFESSOR'];
+        foreach(['preview'=>'visualizar','content'=>'conteudo','download'=>'arquivo']as$method=>$route){
+            try{
+                $controller->$method(new Request('GET','/apc/envios/1/'.$route,[],[],[]),['id'=>1]);
+                self::fail('Outro professor não deveria acessar a rota '.$route.'.');
+            }catch(HttpException$exception){
+                self::assertSame(403,$exception->status);
+            }
+        }
+    }
+
+    public function testLegacyDocAndOdtKeepDownloadFallback():void
+    {
+        $_SESSION['user']=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];
+        foreach(['doc'=>'application/msword','odt'=>'application/vnd.oasis.opendocument.text']as$extension=>$mime){
+            $controller=$this->controller($mime,$extension,'documento');
+            $preview=$controller->preview(new Request('GET','/apc/envios/1/visualizar',[],[],[]),['id'=>1]);
+            self::assertStringContainsString('Este formato não abre diretamente no navegador',$preview->body);
+            self::assertStringContainsString('Enviado por você para',$preview->body);
+            self::assertStringNotContainsString('data-apc-docx-preview',$preview->body);
+            try{
+                $controller->content(new Request('GET','/apc/envios/1/conteudo',[],[],[]),['id'=>1]);
+                self::fail('O formato '.$extension.' deve manter o download como alternativa.');
+            }catch(HttpException$exception){
+                self::assertSame(415,$exception->status);
+                self::assertSame('APC_PREVIEW_UNSUPPORTED',$exception->errorCode);
+            }
+            $download=$controller->download(new Request('GET','/apc/envios/1/arquivo',[],[],[]),['id'=>1]);
+            self::assertSame('documento',$download->body);
+            self::assertStringStartsWith('attachment;',$download->headers['Content-Disposition']);
+        }
     }
 
     private function controller(string$mime,string$extension,string$contents):SubmissionController
