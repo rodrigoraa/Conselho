@@ -12,7 +12,7 @@ final class PlanService
 {
     private const STAGES=['EF_AI','EF_AF','EM'];
     private const YEARS=['EF1','EF2','EF3','EF4','EF5','EF6','EF7','EF8','EF9','EM1','EM2','EM3'];
-    public function __construct(private readonly PlanRepository $plans,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly ?SecretariaApiClient $api=null,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null) {}
+    public function __construct(private readonly PlanRepository $plans,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly AuditRepository $audit,private readonly AuthorizationService $authorization,private readonly ?SecretariaApiClient $api=null,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null,private readonly ?ScheduleService $schedules=null) {}
 
     public function create(array $input,array $user,string $ip,string $userAgent): int
     {
@@ -20,6 +20,7 @@ final class PlanService
         $this->window()->assertOpen($event);
         $classId=Input::positiveInt($input['turma_id_externo']??null);$class=$this->access->classFor($classId,(int)$user['id'],(string)$user['perfil']);
         if(!$class)throw new HttpException(403,'APC_CLASS_FORBIDDEN','Você não está vinculado a esta turma.');
+        $this->assertScopedSchedule($event,(int)$user['id'],$classId);
         $totalStudents=null;if($this->api)try{$totalStudents=count($this->api->alunosDaTurma($classId));}catch(\Throwable){}
         $structured=$this->curriculumFields($input);$data=$this->fields($input,$structured)+['evento_id'=>$eventId,'professor_usuario_id'=>(int)$user['id'],'professor_nome_snapshot'=>(string)$user['nome'],'turma_id_externo'=>$classId,'turma_nome_snapshot'=>(string)$class['nome'],'total_alunos_snapshot'=>$totalStudents];
         $this->plans->db->beginTransaction();
@@ -80,6 +81,13 @@ final class PlanService
     private function auditFields(array $plan): array
     {
         return array_intersect_key($plan,array_flip(['componente_curricular','competencias_habilidades','conteudos','descricao_atividade','estrategia_devolucao','status']));
+    }
+
+    private function assertScopedSchedule(array$event,int$userId,int$classId):void
+    {
+        if(($event['turno']??null)===null)return;$snapshot=$this->schedules?->ensureEvent($event);
+        if(($snapshot['status']??null)==='CONFIGURADO')foreach($snapshot['requirements']as$row)if((int)$row['professor_usuario_id']===$userId&&(int)$row['turma_id_externo']===$classId&&$row['turno']===$event['turno'])return;
+        throw new HttpException(403,'APC_SCHEDULE_FORBIDDEN','Você não possui aula prevista nesta turma para a data e o turno deste evento.');
     }
 
     private function window(): EventWindow{return$this->eventWindow??new EventWindow();}

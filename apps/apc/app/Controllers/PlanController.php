@@ -3,7 +3,7 @@
 namespace Apc\Controllers;
 
 use Apc\Repositories\{AccessRepository,CurriculumRepository,EventRepository};
-use Apc\Services\{AuthorizationService,EventWindow,PlanService};
+use Apc\Services\{AuthorizationService,EventWindow,PlanService,ScheduleService};
 use PreConselho\Support\Csrf;
 use Shared\Exceptions\HttpException;
 use Shared\Http\{Request,Response};
@@ -11,13 +11,13 @@ use Shared\Support\View;
 
 final class PlanController
 {
-    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null) {}
+    public function __construct(private readonly PlanService $service,private readonly AuthorizationService $authorization,private readonly EventRepository $events,private readonly AccessRepository $access,private readonly View $view,private readonly ?CurriculumRepository $curriculum=null,private readonly ?EventWindow $eventWindow=null,private readonly ?ScheduleService $schedules=null) {}
 
     public function createForm(Request $request): Response
     {
         $user=$_SESSION['user'];$eventId=(int)($request->query['evento']??0);$selectedEvent=$eventId?$this->events->find($eventId):null;
-        if($eventId&&!$selectedEvent)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');if($selectedEvent)$this->window()->assertOpen($selectedEvent);
-        $events=array_values(array_filter($this->events->active(),fn(array$event):bool=>$this->window()->describe($event)['is_open']));$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;$components=$this->curriculum?->components()??[];$planCurriculum=['componentes'=>[],'habilidades'=>[]];$window=null;
+        if($eventId&&!$selectedEvent)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');if($selectedEvent&&!$this->visibleEvent($selectedEvent,$user))throw new HttpException(403,'APC_SCHEDULE_FORBIDDEN','Você não possui aula prevista para a data e o turno deste evento.');if($selectedEvent)$this->window()->assertOpen($selectedEvent);
+        $events=array_values(array_filter($this->events->active(),fn(array$event):bool=>$this->visibleEvent($event,$user)&&$this->window()->describe($event)['is_open']));$classes=$this->access->classesFor((int)$user['id'],(string)$user['perfil']);$plan=null;$components=$this->curriculum?->components()??[];$planCurriculum=['componentes'=>[],'habilidades'=>[]];$window=null;
         return new Response($this->view->render('plan_form',compact('events','classes','selectedEvent','plan','components','planCurriculum','window')+['title'=>'Novo Plano de Ação']));
     }
 
@@ -46,5 +46,6 @@ final class PlanController
         Csrf::verify($request->body['_csrf']??null);$id=(int)$params['id'];$this->service->reopen($id,(string)($request->body['motivo']??''),$_SESSION['user'],$request->ip(),$request->header('User-Agent')??'');$_SESSION['flash']='Plano APC reaberto com auditoria.';return Response::redirect('/apc/planos/'.$id);
     }
 
+    private function visibleEvent(array$event,array$user):bool{return$user['perfil']!=='PROFESSOR'||($event['turno']??null)===null||($this->schedules?->isVisibleToTeacher($event,(int)$user['id'])??false);}
     private function window(): EventWindow{return$this->eventWindow??new EventWindow();}
 }

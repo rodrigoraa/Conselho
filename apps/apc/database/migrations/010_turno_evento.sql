@@ -1,0 +1,2 @@
+ALTER TABLE apc_eventos ADD COLUMN turno TEXT
+    CHECK(turno IS NULL OR turno IN('MATUTINO','VESPERTINO'));

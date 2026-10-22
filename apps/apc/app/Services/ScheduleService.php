@@ -50,6 +50,15 @@ final class ScheduleService
         $started=$this->schedules->db->inTransaction();if(!$started)$this->schedules->db->beginTransaction();try{$result=$this->materialize($event);if(!$started)$this->schedules->db->commit();return$result;}catch(\Throwable$exception){if(!$started&&$this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
     }
 
+    public function isVisibleToTeacher(array $event,int $userId):bool
+    {
+        if(($event['turno']??null)===null)return true;
+        $state=$this->ensureEvent($event);
+        if($state['status']!=='CONFIGURADO')return false;
+        foreach($state['requirements']as$requirement)if((int)$requirement['professor_usuario_id']===$userId)return true;
+        return false;
+    }
+
     public function deactivate(int$id,int$userId,string$ip,string$userAgent):void
     {
         $this->schedules->db->beginTransaction();try{$this->schedules->deactivate($id,$userId);$this->audit->record($userId,'DESATIVAR_HORARIO_APC','apc_horario_importacoes',$id,null,['status'=>'DESATIVADO'],$ip,$userAgent);$this->schedules->db->commit();}catch(\Throwable$exception){if($this->schedules->db->inTransaction())$this->schedules->db->rollBack();throw$exception;}
@@ -108,8 +117,8 @@ final class ScheduleService
     private function snapshotPlan(array $event):array
     {
         $weekday=(int)(new \DateTimeImmutable((string)$event['data'],new \DateTimeZone('UTC')))->format('N');$reference=$event['dia_grade_referencia']??null;if($weekday>5&&$reference===null)return['status'=>'DIA_REFERENCIA_NAO_CONFIGURADO'];
-        $needed=$this->access->activeShiftsForYear((int)$event['ano_letivo']);$covering=$this->schedules->coveringImports((int)$event['ano_letivo'],(string)$event['data']);$covered=array_values(array_unique(array_column($covering,'turno')));if(!$needed)$needed=$covered;if(!$needed||array_diff($needed,$covered))return['status'=>'NAO_CONFIGURADA','missing_shifts'=>array_values(array_diff($needed,$covered))];
-        $day=$weekday<=5?$weekday:(int)$reference;$rows=$this->schedules->rowsForEvent((int)$event['ano_letivo'],(string)$event['data'],$day);$valid=[];foreach($rows as$row)if($this->access->isActiveTeacher((int)$row['professor_usuario_id'])&&$this->access->hasActiveClassBinding((int)$row['professor_usuario_id'],(int)$row['turma_id_externo'],(int)$event['ano_letivo'],(string)$row['turno']))$valid[]=$row;return['status'=>'CONFIGURADO','day'=>$day,'rows'=>$valid];
+        $shift=$event['turno']??null;$needed=$shift===null?$this->access->activeShiftsForYear((int)$event['ano_letivo']):[$shift];$covering=$this->schedules->coveringImports((int)$event['ano_letivo'],(string)$event['data']);$covered=array_values(array_unique(array_column($covering,'turno')));if(!$needed)$needed=$covered;if(!$needed||array_diff($needed,$covered))return['status'=>'NAO_CONFIGURADA','missing_shifts'=>array_values(array_diff($needed,$covered))];
+        $day=$weekday<=5?$weekday:(int)$reference;$rows=$this->schedules->rowsForEvent((int)$event['ano_letivo'],(string)$event['data'],$day);$valid=[];foreach($rows as$row)if(($shift===null||$row['turno']===$shift)&&$this->access->isActiveTeacher((int)$row['professor_usuario_id'])&&$this->access->hasActiveClassBinding((int)$row['professor_usuario_id'],(int)$row['turma_id_externo'],(int)$event['ano_letivo'],(string)$row['turno']))$valid[]=$row;return['status'=>'CONFIGURADO','day'=>$day,'rows'=>$valid];
     }
 
     private function matchNames(array$names,array$candidates):array

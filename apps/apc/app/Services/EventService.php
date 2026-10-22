@@ -14,11 +14,18 @@ final class EventService
 
     public function save(?int $id,array $input,int $userId,string $ip,string $userAgent): int
     {
-        $data=$this->validate($input);$before=$id===null?null:$this->events->find($id);
-        if($id!==null&&!$before)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
-        if($before&&((int)$before['ano_letivo']!==(int)$data['ano_letivo']||(string)$before['data']!==(string)$data['data']||($before['dia_grade_referencia']===null?null:(int)$before['dia_grade_referencia'])!==$data['dia_grade_referencia'])){$stateStatement=$this->events->db->prepare('SELECT status FROM apc_evento_obrigacao_estados WHERE evento_id=:evento');$stateStatement->execute([':evento'=>$id]);$state=$stateStatement->fetch()?:null;$referenceOnly=(int)$before['ano_letivo']===(int)$data['ano_letivo']&&(string)$before['data']===(string)$data['data'];$requirementsStatement=$this->events->db->prepare('SELECT 1 FROM apc_evento_obrigacoes WHERE evento_id=:evento LIMIT 1');$requirementsStatement->execute([':evento'=>$id]);$legacyReference=$referenceOnly&&($state['status']??null)==='LEGADO'&&!$requirementsStatement->fetchColumn();if($state!==null&&!$legacyReference)throw new HttpException(422,'APC_EVENT_REQUIREMENTS_LOCKED','Data, ano ou dia de referência não podem ser alterados depois que as obrigações foram registradas.');}
         $this->events->db->beginTransaction();
         try{
+            $before=$id===null?null:$this->events->find($id);
+            if($id!==null&&!$before)throw new HttpException(404,'APC_EVENT_NOT_FOUND','Evento APC não encontrado.');
+            $data=$this->validate($input+['turno'=>$before['turno']??null]);
+            if($before&&((int)$before['ano_letivo']!==(int)$data['ano_letivo']||(string)$before['data']!==(string)$data['data']||($before['dia_grade_referencia']===null?null:(int)$before['dia_grade_referencia'])!==$data['dia_grade_referencia']||($before['turno']??null)!==$data['turno'])){
+                $stateStatement=$this->events->db->prepare('SELECT status FROM apc_evento_obrigacao_estados WHERE evento_id=:evento');$stateStatement->execute([':evento'=>$id]);$state=$stateStatement->fetch()?:null;
+                $referenceOnly=(int)$before['ano_letivo']===(int)$data['ano_letivo']&&(string)$before['data']===(string)$data['data']&&($before['turno']??null)===$data['turno'];
+                $requirementsStatement=$this->events->db->prepare('SELECT 1 FROM apc_evento_obrigacoes WHERE evento_id=:evento LIMIT 1');$requirementsStatement->execute([':evento'=>$id]);
+                $legacyReference=$referenceOnly&&($state['status']??null)==='LEGADO'&&!$requirementsStatement->fetchColumn();
+                if($state!==null&&!$legacyReference)throw new HttpException(422,'APC_EVENT_REQUIREMENTS_LOCKED','Data, ano, turno ou dia de referência não podem ser alterados depois que as obrigações foram registradas.');
+            }
             if($id===null){$data['criado_por']=$userId;$id=$this->events->insert($data);}else{$this->events->update($id,$data);}
             if($data['status']==='ATIVO')$this->schedules?->ensureEvent($this->events->find($id));
             $this->audit->record($userId,$before?'ALTERAR':'CRIAR','apc_eventos',$id,$before,$data,$ip,$userAgent);$this->events->db->commit();
@@ -51,9 +58,14 @@ final class EventService
         $type=mb_strtoupper(trim((string)($input['tipo']??'')));$origin=mb_strtoupper(trim((string)($input['origem']??'')));
         if(!in_array($type,self::TYPES,true)||!in_array($origin,['SED','ESCOLA'],true))throw new HttpException(422,'VALIDATION_ERROR','Confira o tipo e a origem do evento.');
         $status=mb_strtoupper(trim((string)($input['status']??'ATIVO')));if(!in_array($status,['ATIVO','CANCELADO'],true))throw new HttpException(422,'VALIDATION_ERROR','Status de evento inválido.');
+        $shift=$input['turno']??null;
+        if($shift!==null&&!is_string($shift))throw new HttpException(422,'APC_EVENT_SHIFT','Selecione matutino, vespertino ou todos os turnos.');
+        $shift=mb_strtoupper(trim($shift??''));
+        if(!in_array($shift,['','TODOS','MATUTINO','VESPERTINO'],true))throw new HttpException(422,'APC_EVENT_SHIFT','Selecione matutino, vespertino ou todos os turnos.');
+        $shift=in_array($shift,['','TODOS'],true)?null:$shift;
         $date=Input::date($input['data']??null,'Data');$reference=trim((string)($input['dia_grade_referencia']??''));$reference=$reference===''?null:filter_var($reference,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>5]]);if($reference===false)throw new HttpException(422,'APC_EVENT_REFERENCE_DAY','Selecione um dia da grade entre segunda e sexta-feira.');$weekday=(int)(new \DateTimeImmutable($date,new \DateTimeZone('UTC')))->format('N');if($weekday>5&&$reference===null)throw new HttpException(422,'APC_EVENT_REFERENCE_DAY','Este evento ocorre no fim de semana. Selecione o dia da grade de referência.');
         return[
-            'ano_letivo'=>$year,'data'=>$date,'dia_grade_referencia'=>$reference,
+            'ano_letivo'=>$year,'data'=>$date,'dia_grade_referencia'=>$reference,'turno'=>$shift,
             'titulo'=>Input::text($input['titulo']??null,'Título',160),'tipo'=>$type,'origem'=>$origin,
             'descricao'=>Input::text($input['descricao']??'','Descrição',4000,false),
             'justificativa'=>Input::text($input['justificativa']??'','Justificativa',2000,false)?:null,
