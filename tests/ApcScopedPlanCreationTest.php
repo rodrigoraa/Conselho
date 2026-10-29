@@ -40,6 +40,12 @@ final class ApcScopedPlanCreationTest extends ApcTestCase
         foreach(['APC vespertina restrita','APC sem aula']as$title)self::assertStringNotContainsString($title,$html);
         self::assertStringContainsString('>Turma histórica própria</option>',$html);self::assertStringContainsString('>7º A</option>',$html);foreach(['Turma de outro professor','Turma arquivada','Nome antigo da turma atual']as$title)self::assertStringNotContainsString($title,$html);
         self::assertStringContainsString('Nenhum plano corresponde aos filtros',$html);
+        $historicalId=(int)$apc->query('SELECT id FROM apc_planos WHERE turma_id_externo=99')->fetchColumn();$linkedId=(int)$apc->query('SELECT id FROM apc_planos WHERE turma_id_externo=10')->fetchColumn();
+        $html=$controller->index(new Request('GET','/apc/planos',[],[],[]))->body;
+        self::assertStringContainsString('Sem vínculo ativo com esta turma',$html);
+        self::assertStringNotContainsString('href="/apc/planos/'.$historicalId.'"',$html);self::assertStringNotContainsString('href="/apc/planos/'.$historicalId.'/entregas"',$html);
+        self::assertStringContainsString('href="/apc/planos/'.$linkedId.'"',$html);
+        try{$controller->show(new Request('GET','/apc/planos/'.$historicalId,[],[],[]),['id'=>$historicalId]);self::fail('O vínculo ausente deve continuar impedindo o acesso direto.');}catch(HttpException$exception){self::assertSame(403,$exception->status);}
         foreach(['ADMIN','COORDENADOR']as$role){$_SESSION['user']=['id'=>1,'nome'=>'Gestão','perfil'=>$role];$html=$controller->index(new Request('GET','/apc/planos',[],[],[]))->body;foreach(['APC matutina permitida','APC vespertina restrita','APC global preservada','APC sem aula','APC legada restrita']as$title)self::assertStringContainsString($title,$html);}
     }
 

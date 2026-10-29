@@ -19,7 +19,7 @@ try{
  $requestPath='/'.trim((string)(parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH)?:'/'),'/');if($requestPath==='//')$requestPath='/';$bodyLimit=1048576;
  if($requestPath==='/apc/admin/calendario/analisar')$bodyLimit=max(1048576,Env::int('APC_CALENDAR_MAX_BYTES',15728640)+1048576);
  elseif($requestPath==='/apc/admin/horarios/analisar')$bodyLimit=max(1048576,Env::int('APC_SCHEDULE_MAX_BYTES',10485760)+1048576);
- elseif($requestPath==='/apc/envios'||preg_match('#^/apc/entregas/[0-9]+/anexos$#',$requestPath))$bodyLimit=max(1048576,Env::int('APC_UPLOAD_MAX_BYTES',10485760)*($requestPath==='/apc/envios'?1:max(1,Env::int('APC_UPLOAD_MAX_FILES',5)))+1048576);
+ elseif($requestPath==='/apc/envios')$bodyLimit=max(1048576,Env::int('APC_UPLOAD_MAX_BYTES',10485760)+1048576);
  if((int)($_SERVER['CONTENT_LENGTH']??0)>$bodyLimit)throw new HttpException(413,'BODY_TOO_LARGE','Requisição muito grande.');$request=Request::capture();$repo=new AppRepository(ConnectionFactory::preconselho(Env::get('PRECONSELHO_DB_PATH',$root.'/storage/preconselho.db')??''));$persistentDays=max(1,min(90,Env::int('PROFESSOR_LOGIN_DAYS',15)));$persistentLogin=new PersistentLoginService($repo->db,$persistentDays,$https&&Env::bool('SESSION_SECURE'),Env::get('SESSION_SAMESITE','Lax')??'Lax');$persistentCookie=$_COOKIE[PersistentLoginService::COOKIE_NAME]??null;if(!empty($_SESSION['user'])){$expires=(int)($_SESSION['user']['persistent_expires_at']??0);if($expires>0&&$expires<=time()){$persistentLogin->forget($persistentCookie);$_SESSION=[];session_regenerate_id(true);}elseif($expires===0&&($rememberedUntil=$persistentLogin->remember($_SESSION['user']))!==null)$_SESSION['user']['persistent_expires_at']=$rememberedUntil;}elseif(($restored=$persistentLogin->restore($persistentCookie))!==null){session_regenerate_id(true);$_SESSION['user']=$restored;}$api=new SecretariaApiClient();$view=new View(dirname(__DIR__).'/resources/views');$c=new WebController($repo,$view,$api,$persistentLogin);$portal=new PortalController($view);$binding=new BindingController($repo,$api);$management=new ManagementController($repo,$api,$view);$collaboration=new CollaborationController($repo);$apcInstance=null;$apcModule=static function()use(&$apcInstance,$repo,$api,$root):ApcModule{return$apcInstance??=new ApcModule(ConnectionFactory::apc(Env::get('APC_DB_PATH',$root.'/storage/apc.db')??''),$repo->db,$api,$root);};$r=new Router();$auth=[new AuthMiddleware()];$admin=[new AuthMiddleware(),new RoleMiddleware(['ADMIN'])];$coord=[new AuthMiddleware(),new RoleMiddleware(['ADMIN','COORDENADOR'])];$professor=[new AuthMiddleware(),new RoleMiddleware(['PROFESSOR'])];
  $r->add('POST','/internal/collaboration/snapshot',fn($q)=>$collaboration->snapshot($q));$r->add('POST','/internal/collaboration/save',fn($q)=>$collaboration->save($q));
  $r->add('GET','/documentos/{periodo}',fn($q,$p)=>$c->document($q,$p),$auth);$r->add('POST','/documentos/{periodo}/abertura/autosave',fn($q,$p)=>$c->autosaveOpening($q,$p),$coord);$r->add('POST','/documentos/{periodo}/titulo/autosave',fn($q,$p)=>$c->autosaveTitle($q,$p),$coord);$r->add('POST','/documentos/{periodo}/linhas-rodape',fn($q,$p)=>$c->saveFooterLines($q,$p),$admin);$r->add('POST','/documentos/{periodo}/turmas/{turma}/bloqueio',fn($q,$p)=>$c->lockDocumentClass($q,$p),$auth);$r->add('POST','/documentos/{periodo}/turmas/{turma}/bloqueio/liberar',fn($q,$p)=>$c->releaseDocumentClass($q,$p),$auth);$r->add('POST','/documentos/{periodo}/turmas/{turma}/autosave',fn($q,$p)=>$c->autosaveDocument($q,$p),$auth);$r->add('POST','/documentos/{periodo}/turmas/{turma}/finalizar',fn($q,$p)=>$c->finalizeClass($q,$p),[new AuthMiddleware(),new RoleMiddleware(['PROFESSOR'])]);$r->add('POST','/documentos/{periodo}/turmas/{turma}/professores/{professor}/reabrir',fn($q,$p)=>$c->reopenClassParticipation($q,$p),$coord);$r->add('POST','/documentos/{periodo}/turmas/{turma}/professores/{professor}/finalizar',fn($q,$p)=>$c->finalizeClassParticipation($q,$p),$admin);$r->add('GET','/documentos/{periodo}/professores/{professor}',fn($q,$p)=>Response::redirect('/documentos/'.$p['periodo']),$coord);
@@ -32,20 +32,6 @@ try{
  $r->add('GET','/apc/envios/{id}/arquivo',fn($q,$p)=>$apcModule()->submissions->download($q,$p),$auth);
  $r->add('GET','/apc/calendario',fn($q)=>$apcModule()->calendar->index($q),$auth);
  $r->add('GET','/apc/eventos/{id}',fn($q,$p)=>$apcModule()->calendar->show($q,$p),$auth);
- $r->add('GET','/apc/habilidades',fn($q)=>$apcModule()->curriculum->search($q),$auth);
- $r->add('GET','/apc/planos',fn($q)=>$apcModule()->plans->index($q),$auth);
- $r->add('GET','/apc/planos/novo',fn($q)=>$apcModule()->plans->createForm($q),$professor);
- $r->add('POST','/apc/planos',fn($q)=>$apcModule()->plans->create($q),$professor);
- $r->add('GET','/apc/planos/{id}',fn($q,$p)=>$apcModule()->plans->show($q,$p),$auth);
- $r->add('POST','/apc/planos/{id}',fn($q,$p)=>$apcModule()->plans->update($q,$p),$professor);
- $r->add('POST','/apc/planos/{id}/finalizar',fn($q,$p)=>$apcModule()->plans->finalize($q,$p),$professor);
- $r->add('POST','/apc/planos/{id}/reabrir',fn($q,$p)=>$apcModule()->plans->reopen($q,$p),$coord);
- $r->add('GET','/apc/planos/{id}/entregas',fn($q,$p)=>$apcModule()->deliveries->index($q,$p),$auth);
- $r->add('POST','/apc/planos/{id}/entregas/{aluno}',fn($q,$p)=>$apcModule()->deliveries->save($q,$p),$professor);
- $r->add('POST','/apc/entregas/{id}/anexos',fn($q,$p)=>$apcModule()->attachments->upload($q,$p),$professor);
- $r->add('GET','/apc/anexos/{id}',fn($q,$p)=>$apcModule()->attachments->download($q,$p),$auth);
- $r->add('POST','/apc/anexos/{id}/excluir',fn($q,$p)=>$apcModule()->attachments->delete($q,$p),$professor);
- $r->add('GET','/apc/relatorios',fn($q)=>$apcModule()->reports->index($q),$coord);
  $r->add('GET','/apc/admin',fn($q)=>$apcModule()->admin->index($q),$admin);
  $r->add('GET','/apc/admin/horarios',fn($q)=>$apcModule()->schedules->index($q),$admin);
  $r->add('POST','/apc/admin/horarios/analisar',fn($q)=>$apcModule()->schedules->analyze($q),$admin);
@@ -54,14 +40,6 @@ try{
  $r->add('POST','/apc/admin/horarios/aba',fn($q)=>$apcModule()->schedules->selectSheet($q),$admin);
  $r->add('POST','/apc/admin/horarios/confirmar',fn($q)=>$apcModule()->schedules->confirm($q),$admin);
  $r->add('POST','/apc/admin/horarios/{id}/desativar',fn($q,$p)=>$apcModule()->schedules->deactivate($q,$p),$admin);
- $r->add('GET','/apc/admin/curriculo',fn($q)=>$apcModule()->curriculumAdmin->index($q),$admin);
- $r->add('POST','/apc/admin/curriculo/importar',fn($q)=>$apcModule()->curriculumAdmin->import($q),$admin);
- $r->add('POST','/apc/admin/curriculo/componentes',fn($q)=>$apcModule()->curriculumAdmin->createComponent($q),$admin);
- $r->add('POST','/apc/admin/curriculo/componentes/{id}',fn($q,$p)=>$apcModule()->curriculumAdmin->updateComponent($q,$p),$admin);
- $r->add('POST','/apc/admin/curriculo/componentes/{id}/alternar',fn($q,$p)=>$apcModule()->curriculumAdmin->toggleComponent($q,$p),$admin);
- $r->add('POST','/apc/admin/curriculo/habilidades',fn($q)=>$apcModule()->curriculumAdmin->createAbility($q),$admin);
- $r->add('POST','/apc/admin/curriculo/habilidades/{id}',fn($q,$p)=>$apcModule()->curriculumAdmin->updateAbility($q,$p),$admin);
- $r->add('POST','/apc/admin/curriculo/habilidades/{id}/alternar',fn($q,$p)=>$apcModule()->curriculumAdmin->toggleAbility($q,$p),$admin);
  $r->add('POST','/apc/admin/calendario/analisar',fn($q)=>$apcModule()->admin->analyzeSchoolCalendar($q),$admin);
  $r->add('GET','/apc/admin/calendario/revisar',fn($q)=>$apcModule()->admin->reviewSchoolCalendar($q),$admin);
  $r->add('POST','/apc/admin/calendario/confirmar',fn($q)=>$apcModule()->admin->confirmSchoolCalendar($q),$admin);
@@ -72,7 +50,6 @@ try{
  $r->add('POST','/apc/admin/eventos/{id}/reativar',fn($q,$p)=>$apcModule()->admin->reactivateEvent($q,$p),$admin);
  $r->add('POST','/apc/admin/eventos/{id}/conciliar-grade',fn($q,$p)=>$apcModule()->admin->reconcileLegacy($q,$p),$admin);
  $r->add('POST','/apc/admin/eventos/{id}/recalcular-grade',fn($q,$p)=>$apcModule()->admin->recalculateConfigured($q,$p),$admin);
- $r->add('POST','/apc/admin/parametros',fn($q)=>$apcModule()->admin->updateSettings($q),$admin);
  $r->dispatch($request)->send();
 }catch(HttpException$e){
  if(str_starts_with((string)(parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)??''),'/internal/collaboration/')||(isset($request)&&FormRecovery::isAjax($request)))Response::json(['success'=>false,'error'=>$e->errorCode,'message'=>$e->getMessage()],$e->status)->send();

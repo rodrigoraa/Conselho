@@ -59,7 +59,8 @@ final class FormRecovery
             $event=filter_var($request->body['evento_id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>2147483647]]);
             return'/apc/planos/novo'.($event!==false?'?evento='.$event:'');
         }
-        if(preg_match('#^/apc/admin/curriculo/(componentes|habilidades)(?:/([1-9][0-9]*))?$#',$path,$match)){
+        if($path==='/apc/admin/curriculo/importar'||preg_match('#^/apc/admin/curriculo/(componentes|habilidades)(?:/([1-9][0-9]*))?$#',$path,$match)){
+            $section=$path==='/apc/admin/curriculo/importar'?'componentes':$match[1];
             $context=is_array($request->body['contexto']??null)?$request->body['contexto']:[];
             $filters=[];
             foreach(['etapa','ano_serie','componente','origem','escopo','ativo','q']as$key){
@@ -67,8 +68,8 @@ final class FormRecovery
                 if(is_scalar($value)&&trim((string)$value)!=='')$filters[$key]=mb_substr(trim((string)$value),0,160);
             }
             if(isset($context['pagina'])&&is_scalar($context['pagina']))$filters['pagina']=max(1,min(2147483647,(int)$context['pagina']));
-            if($match[1]==='habilidades'&&isset($match[2]))$filters['editar_habilidade']=$match[2];
-            return'/apc/admin/curriculo'.($filters?'?'.http_build_query($filters):'').'#'.$match[1];
+            if($section==='habilidades'&&isset($match[2]))$filters['editar_habilidade']=$match[2];
+            return'/apc/admin/curriculo'.($filters?'?'.http_build_query($filters):'').'#'.$section;
         }
         $routes=[
             '#^/admin/usuarios(?:/[1-9][0-9]*/editar)?$#'=>'/admin#usuarios',

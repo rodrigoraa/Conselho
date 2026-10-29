@@ -25,6 +25,9 @@ final class PlanController
             foreach($historicalOptions as$option){$classId=(int)$option['turma_id_externo'];if(isset($knownClassIds[$classId]))continue;$classes[]=['id'=>$classId,'nome'=>$option['turma_nome_snapshot']];$knownClassIds[$classId]=true;}
         }
         $canCreate=$user['perfil']==='PROFESSOR'&&$linkedClasses&&array_filter($this->events->active(),fn(array $event):bool=>$this->window()->describe($event)['is_open']&&$this->visibleEvent($event,$user)&&$this->eligibleClasses($event,$linkedClasses,$user)!==[]);
+        // Match AuthorizationService::plan: historical rows do not grant a missing class binding.
+        $linkedClassIds=array_fill_keys(array_map('intval',array_column($linkedClasses,'id')),true);
+        $rows=array_map(static fn(array $row):array=>$row+['can_access'=>$user['perfil']!=='PROFESSOR'||isset($linkedClassIds[(int)$row['turma_id_externo']])],$rows);
         return new Response($this->view->render('plans',compact('filters','total','pages','page','rows','classes','events','canCreate')+['title'=>'Planos de ação APC']));
     }
 

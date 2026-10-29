@@ -85,4 +85,12 @@ final class FormRecoveryTest extends TestCase
         $invalid=FormRecovery::recover($this->request('/apc/planos',['evento_id'=>'https://outside.invalid']),new HttpException(422,'INVALID','Erro'),1000);
         self::assertSame('/apc/planos/novo',$invalid?->headers['Location']);
     }
+
+    public function testCurriculumImportConflictReturnsToCatalogWithItsFilterContext():void
+    {
+        $request=$this->request('/apc/admin/curriculo/importar',['contexto'=>['etapa'=>'EF_AF','q'=>'solo','pagina'=>2,'return'=>'https://outside.invalid']]);
+        $response=FormRecovery::recover($request,new HttpException(422,'APC_CURRICULUM_COMPONENT_CONFLICT','Revise o componente antes de importar.'),1000);
+        self::assertSame(303,$response?->status);self::assertSame('/apc/admin/curriculo?etapa=EF_AF&q=solo&pagina=2#componentes',$response?->headers['Location']);
+        self::assertSame('Revise o componente antes de importar.',FormRecovery::consume($response->headers['Location'],1001)['message']);
+    }
 }

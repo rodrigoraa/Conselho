@@ -4,6 +4,7 @@ namespace Apc\Services;
 
 use Apc\Repositories\{AuditRepository,CurriculumRepository};
 use RuntimeException;
+use Shared\Exceptions\HttpException;
 
 final class CurriculumImporter
 {
@@ -17,6 +18,9 @@ final class CurriculumImporter
         $files??=['componentes.csv','habilidades_ef_ms.csv','habilidades_em_ms.csv','habilidades_tvt_essenciais.csv'];$componentRows=$this->read($this->directory.'/componentes.csv');$components=$this->validateComponents($componentRows);$abilityRows=[];foreach($files as$file)if($file!=='componentes.csv')$abilityRows=array_merge($abilityRows,$this->read($this->directory.'/'.$file));$abilities=$this->validateAbilities($abilityRows,$components);$warnings=$this->duplicateWarnings($abilities);
         $db=$this->curriculum->db;$db->beginTransaction();
         try{
+            foreach($components as$component){
+                if($this->curriculum->hasComponentIdentityConflict($component))throw new HttpException(422,'APC_CURRICULUM_COMPONENT_CONFLICT','Já existe outro cadastro para '.$component['nome'].' ('.$component['sigla'].') nesta etapa. A importação foi cancelada para preservar esse componente. É necessário revisar a correspondência entre o cadastro e o catálogo antes de importar.');
+            }
             $componentIds=[];foreach($components as$key=>$component)$componentIds[$key]=$this->curriculum->upsertComponent($component);
             $abilityIds=[];$associations=0;
             foreach($abilities as$ability){$componentKey=$ability['etapa'].'_'.$ability['sigla'];$ability['componente_id']=$componentIds[$componentKey];$id=$this->curriculum->upsertAbility($ability);$abilityIds[$ability['chave_estavel']]=$id;foreach($ability['associacoes']as$association){$this->curriculum->addAbilityAssociation($id,$association);$associations++;}}

@@ -88,6 +88,12 @@ final class CurriculumRepository
         foreach($abilities as$ability)$abilityStatement->execute([':plano'=>$planId,':habilidade'=>$ability['id'],':componente'=>$ability['componente_id'],':codigo'=>$ability['codigo'],':descricao'=>$ability['descricao'],':nome'=>$ability['componente_nome']]);
     }
 
+    public function hasComponentIdentityConflict(array $data): bool
+    {
+        $statement=$this->db->prepare('SELECT 1 FROM apc_componentes_curriculares WHERE chave<>:chave AND etapa=:etapa AND (sigla=:sigla OR nome=:nome) LIMIT 1');
+        $statement->execute([':chave'=>$data['chave'],':etapa'=>$data['etapa'],':sigla'=>$data['sigla'],':nome'=>$data['nome']]);return(bool)$statement->fetchColumn();
+    }
+
     public function upsertComponent(array $data): int
     {
         $statement=$this->db->prepare('INSERT INTO apc_componentes_curriculares(chave,nome,sigla,modalidade,etapa,area_conhecimento,ativo,ordem)VALUES(:chave,:nome,:sigla,:modalidade,:etapa,:area,:ativo,:ordem) ON CONFLICT(chave) DO UPDATE SET nome=excluded.nome,sigla=excluded.sigla,modalidade=excluded.modalidade,etapa=excluded.etapa,area_conhecimento=excluded.area_conhecimento,ordem=excluded.ordem,atualizado_em=CURRENT_TIMESTAMP');$statement->execute([':chave'=>$data['chave'],':nome'=>$data['nome'],':sigla'=>$data['sigla'],':modalidade'=>$data['modalidade'],':etapa'=>$data['etapa'],':area'=>$data['area_conhecimento'],':ativo'=>$data['ativo'],':ordem'=>$data['ordem']]);$find=$this->db->prepare('SELECT id FROM apc_componentes_curriculares WHERE chave=:chave');$find->execute([':chave'=>$data['chave']]);return(int)$find->fetchColumn();
