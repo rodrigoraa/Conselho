@@ -387,7 +387,7 @@ final class CouncilDocumentServiceTest extends TestCase
         self::assertSame(1,substr_count($html,'data-shared-content'));
         self::assertStringContainsString('Texto coletivo da turma',$html);
         self::assertStringNotContainsString('Acompanhamento das finalizações',$html);
-        self::assertStringContainsString('>Finalizar turma</button>',$html);
+        self::assertStringContainsString('>Finalizar minha participação</button>',$html);
         self::assertStringContainsString('Autoria dos trechos atuais',$html);
         self::assertStringContainsString('<details id="turma-',$html);
         self::assertStringNotContainsString('<details id="turma-1" open',$html);

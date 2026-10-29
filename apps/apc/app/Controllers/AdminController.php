@@ -17,7 +17,16 @@ final class AdminController
 
     public function index(Request $request): Response
     {
-        $year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>2000,'max_range'=>2100]]);$events=$this->events->all($year===false?null:(int)$year,true);foreach($events as &$event)$event['obligation_status']=$this->scheduleRepository->obligationState((int)$event['id'])['status']??null;unset($event);$settings=$this->settings->all();$audit=$this->audit->recent();return new Response($this->view->render('admin',compact('events','settings','audit','year')+['title'=>'Administração APC']));
+        $year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>2000,'max_range'=>2100]]);$events=$this->events->all($year===false?null:(int)$year,true);
+        $hasRequirements=$this->events->db->prepare('SELECT 1 FROM apc_evento_obrigacoes WHERE evento_id=:evento LIMIT 1');
+        foreach($events as &$event){
+            $state=$this->scheduleRepository->obligationState((int)$event['id']);
+            $event['obligation_status']=$state['status']??null;
+            $event['metadata_locked']=$state!==null;
+            $hasRequirements->execute([':evento'=>(int)$event['id']]);
+            $event['reference_locked']=$state!==null&&!(($state['status']??null)==='LEGADO'&&!$hasRequirements->fetchColumn());
+        }
+        unset($event);$settings=$this->settings->all();$audit=$this->audit->recent();return new Response($this->view->render('admin',compact('events','settings','audit','year')+['title'=>'Administração APC']));
     }
 
     public function reconcileLegacy(Request $request,array $params):Response

@@ -54,6 +54,43 @@ final class SubmissionRepository
         $where=' WHERE s.evento_id=:evento';$parameters=[':evento'=>$eventId];if($role==='PROFESSOR'){$where.=' AND s.professor_usuario_id=:usuario';$parameters[':usuario']=$userId;}$statement=$this->db->prepare($this->select().$where.' ORDER BY s.professor_nome_snapshot,s.etapa,s.ano_serie');$statement->execute($parameters);return$statement->fetchAll();
     }
 
+    /** The display page is deliberately separate from the full submission list used for obligations. */
+    public function page(int $userId,string $role,array $filters=[],int $page=1,int $perPage=20):array
+    {
+        [$where,$parameters]=$this->libraryWhere($userId,$role,$filters);$perPage=max(1,min(100,$perPage));
+        $from=' FROM apc_envios s JOIN apc_eventos e ON e.id=s.evento_id';
+        $statement=$this->db->prepare('SELECT COUNT(*) total,COALESCE(SUM(s.atrasado),0) late'.$from.$where);$statement->execute($parameters);$counts=$statement->fetch();$total=(int)$counts['total'];$pages=max(1,(int)ceil($total/$perPage));$page=max(1,min($pages,$page));
+        $statement=$this->db->prepare($this->select().$where.' ORDER BY s.enviado_em DESC,s.id DESC LIMIT :limite OFFSET :offset');
+        foreach($parameters as$key=>$value)$statement->bindValue($key,$value,is_int($value)?PDO::PARAM_INT:PDO::PARAM_STR);
+        $statement->bindValue(':limite',$perPage,PDO::PARAM_INT);$statement->bindValue(':offset',($page-1)*$perPage,PDO::PARAM_INT);$statement->execute();
+        return['rows'=>$statement->fetchAll(),'total'=>$total,'late'=>(int)$counts['late'],'ontime'=>$total-(int)$counts['late'],'page'=>$page,'pages'=>$pages,'per_page'=>$perPage];
+    }
+
+    public function filterOptions(int $userId,string $role):array
+    {
+        $where=$role==='PROFESSOR'?' WHERE s.professor_usuario_id=:usuario':'';$parameters=$role==='PROFESSOR'?[':usuario'=>$userId]:[];
+        $statement=$this->db->prepare('SELECT DISTINCT e.id,e.ano_letivo,e.data,e.titulo,e.turno FROM apc_envios s JOIN apc_eventos e ON e.id=s.evento_id'.$where.' ORDER BY e.data DESC,e.id DESC');$statement->execute($parameters);$events=$statement->fetchAll();
+        $statement=$this->db->prepare('SELECT s.professor_usuario_id id,MAX(s.professor_nome_snapshot) nome FROM apc_envios s'.$where.' GROUP BY s.professor_usuario_id ORDER BY nome COLLATE NOCASE,s.professor_usuario_id');$statement->execute($parameters);
+        $years=array_values(array_unique(array_map('intval',array_column($events,'ano_letivo'))));rsort($years);
+        return['events'=>$events,'professors'=>$statement->fetchAll(),'years'=>$years];
+    }
+
+    private function libraryWhere(int $userId,string $role,array $filters):array
+    {
+        $where=[];$parameters=[];
+        if($role==='PROFESSOR'){$where[]='s.professor_usuario_id=:owner';$parameters[':owner']=$userId;}
+        foreach(['ano'=>'e.ano_letivo','evento'=>'s.evento_id','professor'=>'s.professor_usuario_id']as$key=>$column)if(($filters[$key]??'')!==''){$where[]=$column.'=:'.$key;$parameters[':'.$key]=(int)$filters[$key];}
+        if(in_array($filters['situacao']??'',['ontime','late'],true)){$where[]='s.atrasado=:atrasado';$parameters[':atrasado']=$filters['situacao']==='late'?1:0;}
+        $mimes=['pdf'=>'application/pdf','doc'=>'application/msword','docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document','odt'=>'application/vnd.oasis.opendocument.text'];
+        if(isset($mimes[$filters['formato']??''])){$where[]='s.mime_type=:mime';$parameters[':mime']=$mimes[$filters['formato']];}
+        elseif(($filters['formato']??'')==='image')$where[]="s.mime_type IN ('image/jpeg','image/png','image/webp')";
+        if(($filters['q']??'')!==''){
+            $where[]="(s.professor_nome_snapshot LIKE :busca ESCAPE '\\' OR s.nome_original LIKE :busca ESCAPE '\\' OR e.titulo LIKE :busca ESCAPE '\\' OR EXISTS(SELECT 1 FROM apc_envio_turmas t WHERE t.envio_id=s.id AND t.turma_nome_snapshot LIKE :busca ESCAPE '\\'))";
+            $parameters[':busca']='%'.str_replace(['\\','%','_'],['\\\\','\\%','\\_'],(string)$filters['q']).'%';
+        }
+        return[$where?' WHERE '.implode(' AND ',$where):'',$parameters];
+    }
+
     /** @return array<int, array<string, mixed>> */
     public function localForMigration(?int$id=null,int$limit=100):array
     {
@@ -70,6 +107,6 @@ final class SubmissionRepository
 
     private function select():string
     {
-        return"SELECT s.*,e.data evento_data,e.titulo evento_titulo,e.tipo evento_tipo,e.ano_letivo,b.numero bimestre_numero,b.data_inicio bimestre_inicio,b.data_fim bimestre_fim,(SELECT GROUP_CONCAT(t.turma_nome_snapshot,' • ') FROM apc_envio_turmas t WHERE t.envio_id=s.id ORDER BY t.turma_nome_snapshot) turmas,(SELECT GROUP_CONCAT(t.turma_id_externo,',') FROM apc_envio_turmas t WHERE t.envio_id=s.id ORDER BY t.turma_id_externo) turma_ids FROM apc_envios s JOIN apc_eventos e ON e.id=s.evento_id JOIN apc_bimestres b ON b.id=s.bimestre_id";
+        return"SELECT s.*,e.data evento_data,e.titulo evento_titulo,e.tipo evento_tipo,e.turno evento_turno,e.dia_grade_referencia evento_dia_grade_referencia,e.ano_letivo,b.numero bimestre_numero,b.data_inicio bimestre_inicio,b.data_fim bimestre_fim,(SELECT GROUP_CONCAT(t.turma_nome_snapshot,' • ') FROM apc_envio_turmas t WHERE t.envio_id=s.id ORDER BY t.turma_nome_snapshot) turmas,(SELECT GROUP_CONCAT(t.turma_id_externo,',') FROM apc_envio_turmas t WHERE t.envio_id=s.id ORDER BY t.turma_id_externo) turma_ids FROM apc_envios s JOIN apc_eventos e ON e.id=s.evento_id JOIN apc_bimestres b ON b.id=s.bimestre_id";
     }
 }

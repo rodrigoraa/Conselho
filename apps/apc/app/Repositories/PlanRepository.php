@@ -14,7 +14,26 @@ final class PlanRepository
         $statement->execute([':id'=>$id]);return$statement->fetch()?:null;
     }
 
-    public function list(int $userId,string $role,array $filters=[]): array
+    public function list(int $userId,string $role,array $filters=[],?int $limit=null,int $offset=0): array
+    {
+        [$where,$params]=$this->listingCriteria($userId,$role,$filters);
+        $sql="SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.status evento_status,e.disponibilizado_em evento_disponibilizado_em,e.disponibilizado_por evento_disponibilizado_por,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE ".implode(' AND ',$where).' GROUP BY p.id ORDER BY e.data DESC,p.professor_nome_snapshot,p.turma_nome_snapshot,p.componente_curricular,p.id';
+        if($limit!==null)$sql.=' LIMIT '.max(1,min(100,$limit)).' OFFSET '.max(0,$offset);
+        $statement=$this->db->prepare($sql);$statement->execute($params);return$statement->fetchAll();
+    }
+
+    public function count(int $userId,string $role,array $filters=[]): int
+    {
+        [$where,$params]=$this->listingCriteria($userId,$role,$filters);$statement=$this->db->prepare('SELECT COUNT(*) FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id WHERE '.implode(' AND ',$where));$statement->execute($params);return(int)$statement->fetchColumn();
+    }
+
+    public function filterOptionsForTeacher(int $userId): array
+    {
+        $statement=$this->db->prepare('SELECT evento_id,turma_id_externo,turma_nome_snapshot FROM apc_planos WHERE professor_usuario_id=:usuario AND arquivado_em IS NULL ORDER BY id DESC');
+        $statement->execute([':usuario'=>$userId]);return$statement->fetchAll();
+    }
+
+    private function listingCriteria(int $userId,string $role,array $filters): array
     {
         $where=['p.arquivado_em IS NULL'];$params=[];
         if($role==='PROFESSOR'){$where[]='p.professor_usuario_id=:usuario';$params[':usuario']=$userId;}
@@ -23,8 +42,8 @@ final class PlanRepository
         if(!empty($filters['status'])&&in_array($filters['status'],['RASCUNHO','FINALIZADO'],true)){$where[]='p.status=:status';$params[':status']=$filters['status'];}
         if(!empty($filters['componente'])){$where[]="p.componente_curricular LIKE :componente ESCAPE '\\'";$params[':componente']='%'.$this->escapeLike((string)$filters['componente']).'%';}
         if(!empty($filters['data'])){$where[]='e.data=:data';$params[':data']=$filters['data'];}
-        $sql="SELECT p.*,e.data evento_data,e.ano_letivo,e.titulo evento_titulo,e.tipo evento_tipo,e.status evento_status,e.disponibilizado_em evento_disponibilizado_em,e.disponibilizado_por evento_disponibilizado_por,COUNT(DISTINCT ent.id) entregas_registradas,COUNT(DISTINCT CASE WHEN ent.entregue=1 THEN ent.id END) entregues,COUNT(DISTINCT an.id) anexos FROM apc_planos p JOIN apc_eventos e ON e.id=p.evento_id LEFT JOIN apc_entregas ent ON ent.plano_id=p.id LEFT JOIN apc_anexos an ON an.entrega_id=ent.id WHERE ".implode(' AND ',$where).' GROUP BY p.id ORDER BY e.data DESC,p.professor_nome_snapshot,p.turma_nome_snapshot,p.componente_curricular';
-        $statement=$this->db->prepare($sql);$statement->execute($params);return$statement->fetchAll();
+        if(!in_array($role,['PROFESSOR','ADMIN','COORDENADOR'],true))$where[]='1=0';
+        return[$where,$params];
     }
 
     public function insert(array $data): int

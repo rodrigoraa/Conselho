@@ -26,10 +26,11 @@ ob_start();
     <a href="#vinculos">Vínculos</a>
     <a href="#periodos">Períodos</a>
 </nav>
+<div class="actions admin-create-actions" aria-label="Cadastros"><a class="button primary" href="#novo-usuario" data-open-panel="novo-usuario">Novo usuário</a><a class="button" href="#novo-vinculo" data-open-panel="novo-vinculo">Novo vínculo</a><a class="button" href="#novo-periodo" data-open-panel="novo-periodo">Novo período</a></div>
 
 <div class="admin-workspace">
     <section class="card admin-section admin-section-block" id="usuarios">
-        <details class="admin-module">
+        <details class="admin-module" open>
             <summary><span><span class="eyebrow">Acessos</span><strong>Usuários</strong><small><?=count($users)?> usuário(s) cadastrado(s)</small></span></summary>
             <div class="admin-module-body">
             <div class="admin-module-tools">
@@ -40,7 +41,7 @@ ob_start();
             </label>
             </div>
 
-        <details class="admin-collapsible admin-create-panel">
+        <details class="admin-collapsible admin-create-panel" id="novo-usuario">
             <summary><span><strong>Novo usuário</strong><small>Crie um acesso para professor, coordenação ou administrador.</small></span></summary>
             <div class="admin-collapsible-body">
                 <form method="post" action="/admin/usuarios">
@@ -95,11 +96,11 @@ ob_start();
     </section>
 
     <section class="card admin-section admin-section-block binding-section" id="vinculos">
-        <details class="admin-module">
+        <details class="admin-module" open>
             <summary><span><span class="eyebrow">Distribuição</span><strong>Vínculos</strong><small><?=count($bindings)?> vínculo(s) cadastrado(s)</small></span></summary>
             <div class="admin-module-body">
         <?php if($bindings):?><div class="admin-module-tools"><label class="search"><span class="sr-only">Buscar vínculo</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar professor, turno ou turma" data-card-search="#binding-management-list" data-empty-target="#bindings-empty"></label></div><?php endif;?>
-        <details class="admin-collapsible admin-create-panel">
+        <details class="admin-collapsible admin-create-panel" id="novo-vinculo">
             <summary><span><strong>Novo vínculo</strong><small>Escolha o professor, o turno e as turmas em que ele leciona.</small></span></summary>
             <div class="admin-collapsible-body">
                 <form method="post" action="/admin/vinculos" id="binding-form">
@@ -107,7 +108,7 @@ ob_start();
                     <div class="binding-step"><span class="step-number">1</span><div><label for="professor_id">Professor</label><?php if($professors):?><select id="professor_id" name="professor_id" required><option value="">Selecione um professor</option><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>"><?=e($p['nome'])?> — <?=e(Cpf::format($p['cpf']??''))?></option><?php endforeach;?></select><?php else:?><p class="error">Nenhum professor ativo cadastrado.</p><?php endif;?></div></div>
                     <div class="binding-step"><span class="step-number">2</span><div><fieldset class="shift-choice-fieldset"><legend>Turnos</legend><div class="shift-choice-list"><label class="choice-card"><input type="checkbox" name="turnos[]" value="MATUTINO" checked><span><strong>Matutino</strong></span></label><label class="choice-card"><input type="checkbox" name="turnos[]" value="VESPERTINO"><span><strong>Vespertino</strong></span></label></div><p class="helper">Marque os dois quando o professor lecionar no matutino e no vespertino.</p></fieldset></div></div>
                     <div class="binding-step"><span class="step-number">3</span><div><div class="choice-heading"><div><label>Turmas</label><p class="helper">Marque todas as turmas desse professor no turno escolhido.</p></div><?php if($classes):?><label class="search"><span class="sr-only">Buscar turma</span><span aria-hidden="true">⌕</span><input type="search" placeholder="Buscar turma" data-choice-filter="#class-choices"></label><?php endif;?></div><?php if($classesError):?><p class="error" role="alert"><?=e($classesError)?></p><?php elseif(!$classes):?><p class="empty-state compact">Nenhuma turma disponível na secretaria.</p><?php else:?><div class="choice-grid" id="class-choices"><?php foreach($classes as $class):?><label class="choice-card"><input type="checkbox" name="turma_ids[]" value="<?=e($class['id'])?>"><span><strong><?=e($class['nome_turma'])?></strong></span></label><?php endforeach;?></div><p class="selection-count"><strong data-selection-count="#class-choices">0</strong> turma(s) selecionada(s)</p><?php endif;?></div></div>
-                    <div class="binding-submit"><p class="helper">Será criado um vínculo para cada turma selecionada, sem necessidade de disciplina.</p><button class="primary" <?=(!$professors||!$classes)?'disabled':''?>>Criar vínculos</button></div>
+                    <div class="subtle-box" data-binding-preview aria-live="polite"></div><div class="binding-submit"><p class="helper">Será solicitado um vínculo para cada combinação de turma e turno selecionada. Vínculos já existentes seguem a validação atual.</p><button class="primary" <?=(!$professors||!$classes)?'disabled':''?>>Criar vínculos</button></div>
                 </form>
             </div>
         </details>
@@ -124,7 +125,7 @@ ob_start();
                             <?php foreach($rows as $b):?><div class="binding-management-card">
                                 <div><strong><?=e($b['turma_nome_snapshot'])?></strong><span><?=e($b['turno']==='MATUTINO'?'Turno matutino':'Turno vespertino')?></span><small><?=e($b['ativo']?'Ativo':'Inativo')?></small></div>
                                 <div class="user-card-actions">
-                                    <details class="user-editor binding-editor"><summary class="button">Editar</summary><form method="post" action="/admin/vinculos/<?=e($b['id'])?>/editar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><label>Professor<select name="professor_id" required><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>" <?=(int)$p['id']===(int)$b['usuario_id']?'selected':''?>><?=e($p['nome'])?></option><?php endforeach;?></select></label><label>Turno<select name="turno" required><option value="MATUTINO" <?=$b['turno']==='MATUTINO'?'selected':''?>>Matutino</option><option value="VESPERTINO" <?=$b['turno']==='VESPERTINO'?'selected':''?>>Vespertino</option></select></label><label>Turma<select name="turma_id" required><?php foreach($classes as $c):?><option value="<?=e($c['id'])?>" <?=(int)$c['id']===(int)$b['turma_externa_id']?'selected':''?>><?=e($c['nome_turma'])?></option><?php endforeach;?></select></label><div class="actions"><button type="button" data-close-details>Cancelar</button><button class="primary">Salvar vínculo</button></div></form></details>
+                                    <details class="user-editor binding-editor"><summary class="button">Editar</summary><form method="post" action="/admin/vinculos/<?=e($b['id'])?>/editar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><label>Professor<select name="professor_id" required><?php if(!in_array((int)$b['usuario_id'],array_map('intval',array_column($professors,'id')),true)):?><option value="<?=e($b['usuario_id'])?>" selected><?=e($b['professor_nome'])?> — inativo (vínculo atual)</option><?php endif;?><?php foreach($professors as $p):?><option value="<?=e($p['id'])?>" <?=(int)$p['id']===(int)$b['usuario_id']?'selected':''?>><?=e($p['nome'])?></option><?php endforeach;?></select></label><label>Turno<select name="turno" required><option value="MATUTINO" <?=$b['turno']==='MATUTINO'?'selected':''?>>Matutino</option><option value="VESPERTINO" <?=$b['turno']==='VESPERTINO'?'selected':''?>>Vespertino</option></select></label><?php if($classesError):?><p class="error" role="alert"><?=e($classesError)?> Atualize a página antes de alterar este vínculo.</p><?php endif;?><label>Turma<select name="turma_id" required <?=(!$classes||$classesError)?'disabled':''?>><?php foreach($classes as $c):?><option value="<?=e($c['id'])?>" <?=(int)$c['id']===(int)$b['turma_externa_id']?'selected':''?>><?=e($c['nome_turma'])?></option><?php endforeach;?></select></label><div class="actions"><button type="button" data-close-details>Cancelar</button><button class="primary" <?=(!$classes||$classesError)?'disabled':''?>>Salvar vínculo</button></div></form></details>
                                     <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/alternar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Confirma a alteração deste vínculo?"><?=e($b['ativo']?'Desativar':'Ativar')?></button></form>
                                     <form class="inline-form" method="post" action="/admin/vinculos/<?=e($b['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir este vínculo de turma? Os documentos de períodos já abertos serão preservados.">Excluir</button></form>
                                 </div>
@@ -139,27 +140,27 @@ ob_start();
     </section>
 
     <section class="card admin-section admin-section-block" id="periodos">
-        <details class="admin-module">
+        <details class="admin-module" open>
             <summary><span><span class="eyebrow">Calendário</span><strong>Períodos</strong><small><?=count($periods)?> período(s) cadastrado(s)</small></span></summary>
             <div class="admin-module-body">
-        <details class="admin-collapsible admin-create-panel">
+        <details class="admin-collapsible admin-create-panel" id="novo-periodo">
             <summary><span><strong>Novo período</strong><small>Defina a etapa e o prazo de preenchimento.</small></span></summary>
             <div class="admin-collapsible-body">
                 <div class="period-readiness"><strong>Antes de abrir</strong><span><?=e($activeMorning)?> vínculo(s) matutino(s) e <?=e($activeAfternoon)?> vespertino(s) estão ativos.</span><span class="<?=$unboundCount?'warning-text':'success-text'?>"><?=e($unboundCount)?> professor(es) ativo(s) sem vínculo de turma.</span></div>
                 <form method="post" action="/admin/periodos">
                     <input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>">
-                    <div class="grid"><label>Nome do período<input name="nome" required placeholder="Ex.: 2º bimestre"></label><label>Ano letivo<input name="ano_letivo" type="number" min="2000" max="2100" value="<?=date('Y')?>" required></label><label>Turno do conselho<select name="turno" required><option value="MATUTINO">Matutino</option><option value="VESPERTINO">Vespertino</option></select></label><label class="period-stage">Etapa<input name="etapa" required placeholder="Ex.: 2º bimestre"></label><div class="grid period-date-grid"><label>Data de início<input name="data_inicio" type="date" required></label><label>Data final<input name="data_fim" type="date" required></label></div></div>
+                    <div class="grid"><label>Nome do período<input name="nome" required placeholder="Ex.: Conselho do 2º bimestre"><small class="helper">Nome apresentado no painel e nos documentos.</small></label><label>Ano letivo<input name="ano_letivo" type="number" min="2000" max="2100" value="<?=date('Y')?>" required></label><label>Turno do conselho<select name="turno" required><option value="MATUTINO">Matutino</option><option value="VESPERTINO">Vespertino</option></select></label><label class="period-stage">Etapa<input name="etapa" required placeholder="Ex.: 2º bimestre"><small class="helper">Etapa pedagógica a que o período se refere.</small></label><div class="grid period-date-grid"><label>Data de início<input name="data_inicio" type="date" required></label><label>Data final<input name="data_fim" type="date" required></label></div></div>
                     <button class="primary">Criar período</button>
                 </form>
             </div>
         </details>
         <?php if(!$periods):?><div class="empty-state compact"><p>Nenhum período cadastrado.</p></div><?php else:?><div class="table"><table><thead><tr><th>Período</th><th>Ano</th><th>Turno</th><th>Status</th><th>Ação</th></tr></thead><tbody>
             <?php foreach($periods as $p):?><tr>
-                <td data-label="Período"><strong><?=e($p['nome'])?></strong><small><?=e($p['etapa'])?></small></td>
+                <td data-label="Período"><strong><?=e($p['nome'])?></strong><small><?=e($p['etapa'])?></small><small><?=e(date('d/m/Y',strtotime($p['data_inicio'])))?> a <?=e(date('d/m/Y',strtotime($p['data_fim'])))?></small><?php if($p['status']==='ABERTO'):?><small><?=e($p['pending_contributions']??0)?> participação(ões) pendente(s) · <a href="/documentos/<?=e($p['id'])?>">Conferir documento</a></small><?php endif;?></td>
                 <td data-label="Ano"><?=e($p['ano_letivo'])?></td>
                 <td data-label="Turno"><?=e($p['turno']==='MATUTINO'?'Matutino':'Vespertino')?></td>
                 <td data-label="Status"><span class="badge status-<?=e(strtolower($p['status']))?>"><?=e($p['status']==='RASCUNHO'?'Em preparação':($p['status']==='ABERTO'?'Aberto':'Encerrado'))?></span></td>
-                <td class="row-action"><div class="row-actions"><?php if($p['status']==='RASCUNHO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/abrir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="primary" data-confirm="Abrir este período? Será criado um documento coletivo com as turmas e responsabilidades dos professores vinculados.">Abrir</button></form><?php elseif($p['status']==='ABERTO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/encerrar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Encerrar o período? Esta ação bloqueará novas edições.">Encerrar</button></form><?php endif;?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir o período <?=e($p['nome'])?>? O documento coletivo e os dados relacionados serão apagados. Esta ação não pode ser desfeita.">Excluir</button></form></div></td>
+                <td class="row-action"><div class="row-actions"><?php if($p['status']==='RASCUNHO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/abrir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="primary" data-confirm="Abrir este período? Será criado um documento coletivo com as turmas e responsabilidades dos professores vinculados.">Abrir</button></form><?php elseif($p['status']==='ABERTO'):?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/encerrar"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button data-confirm="Encerrar o período com <?=e($p['pending_contributions']??0)?> participação(ões) pendente(s) de <?=e($p['pending_teachers']??0)?> professor(es)? Confira o documento antes de continuar. Esta ação bloqueará novas edições.">Encerrar</button></form><?php endif;?><form class="inline-form" method="post" action="/admin/periodos/<?=e($p['id'])?>/excluir"><input type="hidden" name="_csrf" value="<?=e(Csrf::token())?>"><button class="danger" data-confirm="Excluir o período <?=e($p['nome'])?>? O documento coletivo e os dados relacionados serão apagados. Esta ação não pode ser desfeita.">Excluir</button></form></div></td>
             </tr><?php endforeach;?>
         </tbody></table></div><?php endif;?>
             </div>

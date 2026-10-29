@@ -22,6 +22,27 @@ final class ApcScopedPlanCreationTest extends ApcTestCase
         foreach(['APC vespertina restrita','APC sem aula','APC legada restrita']as$title)self::assertStringNotContainsString($title,$html);
     }
 
+    public function testSelectedScopedEventOffersOnlySnapshotClassesWhileGlobalKeepsLinkedClasses():void
+    {
+        [$main,$apc,$schedules]=$this->context();$_SESSION['user']=$this->teacher();$controller=$this->controller($main,$apc,$schedules);
+        $scoped=$controller->createForm($this->request(1))->body;$global=$controller->createForm($this->request(3))->body;
+        self::assertStringNotContainsString('>8º B</option>',$scoped);self::assertStringContainsString('>8º B</option>',$global);
+    }
+
+    public function testPlanListEventChoicesRespectTeacherScopeAndRetainOwnHistoryOutsideCurrentFilters():void
+    {
+        [$main,$apc,$schedules]=$this->context();$plans=new PlanRepository($apc);
+        foreach([[5,3,99,'Turma histórica própria'],[2,4,88,'Turma de outro professor'],[5,3,10,'Nome antigo da turma atual']]as[$eventId,$teacherId,$classId,$className])$plans->insert(['evento_id'=>$eventId,'professor_usuario_id'=>$teacherId,'professor_nome_snapshot'=>'Professor histórico','turma_id_externo'=>$classId,'turma_nome_snapshot'=>$className,'componente_curricular'=>'Matemática','competencias_habilidades'=>'','conteudos'=>'','descricao_atividade'=>'','estrategia_devolucao'=>'']);
+        $archived=$plans->insert(['evento_id'=>4,'professor_usuario_id'=>3,'professor_nome_snapshot'=>'Professor histórico','turma_id_externo'=>77,'turma_nome_snapshot'=>'Turma arquivada','componente_curricular'=>'Matemática','competencias_habilidades'=>'','conteudos'=>'','descricao_atividade'=>'','estrategia_devolucao'=>'']);$apc->exec('UPDATE apc_planos SET arquivado_em=CURRENT_TIMESTAMP WHERE id='.$archived);
+        $_SESSION['user']=$this->teacher();$controller=$this->controller($main,$apc,$schedules);
+        $html=$controller->index(new Request('GET','/apc/planos',['status'=>'FINALIZADO','pagina'=>99],[],[]))->body;
+        foreach(['APC matutina permitida','APC global preservada','APC legada restrita']as$title)self::assertStringContainsString($title,$html);
+        foreach(['APC vespertina restrita','APC sem aula']as$title)self::assertStringNotContainsString($title,$html);
+        self::assertStringContainsString('>Turma histórica própria</option>',$html);self::assertStringContainsString('>7º A</option>',$html);foreach(['Turma de outro professor','Turma arquivada','Nome antigo da turma atual']as$title)self::assertStringNotContainsString($title,$html);
+        self::assertStringContainsString('Nenhum plano corresponde aos filtros',$html);
+        foreach(['ADMIN','COORDENADOR']as$role){$_SESSION['user']=['id'=>1,'nome'=>'Gestão','perfil'=>$role];$html=$controller->index(new Request('GET','/apc/planos',[],[],[]))->body;foreach(['APC matutina permitida','APC vespertina restrita','APC global preservada','APC sem aula','APC legada restrita']as$title)self::assertStringContainsString($title,$html);}
+    }
+
     public function testNewPlanHidesScopedEventsWithoutScheduleService():void
     {
         [$main,$apc]=$this->context();$_SESSION['user']=$this->teacher();$html=$this->controller($main,$apc)->createForm($this->request())->body;
@@ -105,7 +126,7 @@ final class ApcScopedPlanCreationTest extends ApcTestCase
 
     private function controller(PDO$main,PDO$apc,?ScheduleService$schedules=null):PlanController
     {
-        $plans=new PlanRepository($apc);$access=new AccessRepository($main);return new PlanController($this->service($main,$apc,$schedules),new AuthorizationService($plans,$access),new EventRepository($apc),$access,new View(dirname(__DIR__).'/apps/apc/resources/views'),null,new EventWindow('2026-10-15'),$schedules);
+        $plans=new PlanRepository($apc);$access=new AccessRepository($main);return new PlanController($this->service($main,$apc,$schedules),new AuthorizationService($plans,$access),new EventRepository($apc),$access,new View(dirname(__DIR__).'/apps/apc/resources/views'),null,new EventWindow('2026-10-15'),$schedules,$plans);
     }
 
     private function request(int$eventId=0):Request{return new Request('GET','/apc/planos/novo',$eventId?['evento'=>(string)$eventId]:[],[],[]);}

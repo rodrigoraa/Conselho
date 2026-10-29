@@ -15,11 +15,18 @@ final class ScheduleAdminController
     public function __construct(private readonly ScheduleService$service,private readonly ScheduleRepository$schedules,private readonly View$view){}
 
     public function index(Request$request):Response{$year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT);$imports=$this->schedules->imports($year===false?null:($year?:null));return new Response($this->view->render('schedule_admin',compact('imports','year')+['title'=>'Grades de horários APC']));}
+    public function show(Request $request,array $params): Response
+    {
+        $import=$this->schedules->findImport((int)$params['id'])??throw new HttpException(404,'APC_SCHEDULE_NOT_FOUND','Versão da grade não encontrada.');
+        $filters=[];foreach(['dia','turma']as$key)$filters[$key]=max(0,(int)($request->query[$key]??0));$year=filter_var($request->query['ano']??null,FILTER_VALIDATE_INT)?:null;
+        $allRows=$this->schedules->rowsForImport((int)$import['id']);$classes=[];foreach($allRows as$row)$classes[(int)$row['turma_id_externo']]=$row['turma_nome_snapshot'];$rows=$this->schedules->rowsForImport((int)$import['id'],$filters);
+        return new Response($this->view->render('schedule_detail',compact('import','filters','year','classes','rows')+['title'=>'Consultar grade APC']));
+    }
     public function analyze(Request$request):Response
     {
         Csrf::verify($request->body['_csrf']??null);$file=$_FILES['horario']??[];if(!is_array($file))throw new HttpException(422,'APC_SCHEDULE_UPLOAD_INVALID','Selecione a grade em XLSX.');$analysis=$this->service->analyze($file,$request->body);$token=bin2hex(random_bytes(18));$stored=$_SESSION[self::SESSION_KEY]??[];foreach($stored as$key=>$item)if((int)($item['expires_at']??0)<time())unset($stored[$key]);$stored[$token]=['user_id'=>(int)$_SESSION['user']['id'],'expires_at'=>time()+1800,'analysis'=>$analysis];$_SESSION[self::SESSION_KEY]=$stored;return Response::redirect('/apc/admin/horarios/revisar?token='.$token);
     }
-    public function review(Request$request):Response{$token=$this->token($request->query['token']??'');$analysis=$this->analysis($token);return new Response($this->view->render('schedule_review',compact('analysis','token')+['title'=>'Conferir grade APC']));}
+    public function review(Request$request):Response{$token=$this->token($request->query['token']??'');$analysis=$this->analysis($token);$expiresAt=(int)$_SESSION[self::SESSION_KEY][$token]['expires_at'];return new Response($this->view->render('schedule_review',compact('analysis','token','expiresAt')+['title'=>'Conferir grade APC']));}
     public function selectSheet(Request$request):Response
     {
         Csrf::verify($request->body['_csrf']??null);$token=$this->token($request->body['token']??'');$analysis=$this->analysis($token);$name=trim((string)($request->body['aba']??''));$_SESSION[self::SESSION_KEY][$token]['analysis']=$this->service->selectSheet($analysis,$name);return Response::redirect('/apc/admin/horarios/revisar?token='.$token);

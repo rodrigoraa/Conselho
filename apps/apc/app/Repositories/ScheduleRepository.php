@@ -15,6 +15,18 @@ final class ScheduleRepository
         $sql.=' GROUP BY i.id ORDER BY i.ano_letivo DESC,i.vigente_de DESC,i.turno';$statement=$this->db->prepare($sql);$statement->execute($params);return$statement->fetchAll();
     }
 
+    public function findImport(int $id): ?array
+    {
+        $statement=$this->db->prepare('SELECT i.*,COUNT(h.id) aula_count,COUNT(DISTINCT h.turma_id_externo) turma_count,COUNT(DISTINCT h.professor_usuario_id) professor_count FROM apc_horario_importacoes i LEFT JOIN apc_horarios h ON h.importacao_id=i.id WHERE i.id=:id GROUP BY i.id');$statement->execute([':id'=>$id]);return$statement->fetch()?:null;
+    }
+
+    public function rowsForImport(int $id,array $filters=[]): array
+    {
+        $where=['importacao_id=:id'];$params=[':id'=>$id];
+        foreach(['dia'=>'dia_semana','turma'=>'turma_id_externo']as$key=>$column)if(!empty($filters[$key])){$where[]=$column.'=:'.$key;$params[':'.$key]=(int)$filters[$key];}
+        $statement=$this->db->prepare('SELECT * FROM apc_horarios WHERE '.implode(' AND ',$where).' ORDER BY turma_nome_snapshot COLLATE NOCASE,dia_semana,numero_aula,id');$statement->execute($params);return$statement->fetchAll();
+    }
+
     public function assertNoOverlap(int $year,string $shift,string $from,?string $to):void
     {
         $statement=$this->db->prepare("SELECT id FROM apc_horario_importacoes WHERE ano_letivo=:ano AND turno=:turno AND status='ATIVO' AND vigente_de<=COALESCE(:ate,'9999-12-31') AND COALESCE(vigente_ate,'9999-12-31')>=:de LIMIT 1");

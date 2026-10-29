@@ -89,8 +89,10 @@ final class ManagementController
 
     public function audit(Request $request): Response
     {
-        $page=max(1,(int)($request->query['pagina']??1));$limit=25;$offset=($page-1)*$limit;
-        $statement=$this->repository->db->prepare('SELECT a.*,u.nome usuario_nome FROM auditoria a LEFT JOIN usuarios u ON u.id=a.usuario_id ORDER BY a.id DESC LIMIT :limite OFFSET :offset');$statement->bindValue(':limite',$limit,\PDO::PARAM_INT);$statement->bindValue(':offset',$offset,\PDO::PARAM_INT);$statement->execute();$rows=$statement->fetchAll();$total=(int)$this->repository->db->query('SELECT COUNT(*) FROM auditoria')->fetchColumn();
-        return new Response($this->view->render('audit',['title'=>'Auditoria','rows'=>$rows,'page'=>$page,'pages'=>max(1,(int)ceil($total/$limit))]));
+        $filters=AppRepository::auditFilters($request->query);
+        $result=$this->repository->auditPage($filters,$request->query['pagina']??1);
+        $authors=$this->repository->db->query('SELECT DISTINCT a.usuario_id id,u.nome FROM auditoria a LEFT JOIN usuarios u ON u.id=a.usuario_id ORDER BY u.nome,a.usuario_id')->fetchAll();
+        $actions=$this->repository->db->query('SELECT DISTINCT acao FROM auditoria ORDER BY acao')->fetchAll(\PDO::FETCH_COLUMN);
+        return new Response($this->view->render('audit',$result+compact('filters','authors','actions')+['title'=>'Auditoria']));
     }
 }

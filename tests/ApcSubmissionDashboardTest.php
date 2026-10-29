@@ -12,6 +12,95 @@ final class ApcSubmissionDashboardTest extends ApcTestCase
 {
     protected function tearDown():void{unset($_SESSION['user'],$_SESSION['_csrf']);$_SERVER['REQUEST_URI']='/';}
 
+    public function testUnavailableDashboardStatesNeverClaimThatFilesWereAttached():void
+    {
+        foreach(['LEGADO','NAO_CONFIGURADA','DIA_REFERENCIA_NAO_CONFIGURADO'] as $status){
+            $html=$this->dashboardWithScheduleState($status);
+            self::assertStringContainsString('Há APCs aguardando configuração ou conferência.',$html,$status);
+            self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html,$status);
+            self::assertStringNotContainsString('Tudo certo!',$html,$status);
+            self::assertStringNotContainsString('data-apc-submission',$html,$status);
+        }
+    }
+
+    public function testOnlyNoLessonEventsAreDispensedAndNeverCountAsCompletedUploads():void
+    {
+        $html=$this->dashboardWithScheduleState('SEM_AULA');
+        self::assertStringContainsString('Dispensadas por ausência de aula: 1',$html);
+        self::assertStringContainsString('Nenhum envio necessário nas APCs disponíveis.',$html);
+        self::assertStringNotContainsString('Concluídas: 1 de 1',$html);
+        self::assertStringNotContainsString('Tudo certo!',$html);
+        self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html);
+        self::assertStringNotContainsString('data-apc-submission',$html);
+    }
+
+    public function testCompletedEventAlongsideLegacyEventDoesNotAnnounceGlobalSuccess():void
+    {
+        $html=$this->dashboardWithScheduleState('LEGADO',true);
+        self::assertStringContainsString('Envio concluído',$html);
+        self::assertStringContainsString('Evento legado',$html);
+        self::assertStringContainsString('Concluídas: 1 de 1',$html);
+        self::assertStringContainsString('Há APCs aguardando configuração ou conferência.',$html);
+        self::assertStringNotContainsString('Tudo certo!',$html);
+        self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html);
+        self::assertStringNotContainsString('data-apc-submission',$html);
+    }
+
+    public function testCompletedAndDispensedEventsKeepTheirDifferentMeanings():void
+    {
+        $html=$this->dashboardWithScheduleState('SEM_AULA',true);
+        self::assertStringContainsString('Concluídas: 1 de 1',$html);
+        self::assertStringContainsString('Dispensadas por ausência de aula: 1',$html);
+        self::assertStringContainsString('Não há APCs pendentes de envio.',$html);
+        self::assertStringNotContainsString('Tudo certo!',$html);
+        self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html);
+    }
+
+    public function testMissingBindingIsNotDispensedOrCompleted():void
+    {
+        $html=$this->dashboardWithScheduleState('SEM_VINCULO');
+        self::assertStringContainsString('Vínculo não identificado',$html);
+        self::assertStringContainsString('Nenhuma turma disponível.',$html);
+        self::assertStringNotContainsString('Dispensadas por ausência de aula:',$html);
+        self::assertStringNotContainsString('Tudo certo!',$html);
+        self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html);
+        self::assertStringNotContainsString('data-apc-submission',$html);
+    }
+
+    public function testNoActiveEventUsesEmptyGuidanceWithoutSuccess():void
+    {
+        $html=$this->dashboardWithScheduleState('SEM_EVENTO');
+        self::assertStringContainsString('Nenhuma APC ativa para envio',$html);
+        self::assertStringNotContainsString('Tudo certo!',$html);
+        self::assertStringNotContainsString('Todas as APCs disponíveis já foram anexadas',$html);
+    }
+
+    private function dashboardWithScheduleState(string $status,bool $includeComplete=false):string
+    {
+        $main=$this->mainDatabase();$this->seedMain($main);$apc=$this->apcDatabase();
+        $schedules=new \Apc\Repositories\ScheduleRepository($apc);
+        if($status!=='SEM_EVENTO'){
+            $this->seedEvent($apc);
+            if($status==='LEGADO')$schedules->saveSnapshot(1,[],'LEGADO');
+            elseif($status==='SEM_AULA')$schedules->saveSnapshot(1,[],'CONFIGURADO');
+            elseif($status==='NAO_CONFIGURADA')$apc->exec("UPDATE apc_eventos SET data='2026-08-14' WHERE id=1");
+        }
+        if($includeComplete){
+            $apc->exec("INSERT INTO apc_eventos(id,ano_letivo,data,titulo,tipo,origem,descricao,status,criado_por)VALUES(2,2026,'2026-08-14','APC concluída','OUTRO','ESCOLA','','ATIVO',1)");
+            $row=['turma_id_externo'=>10,'turma_nome_snapshot'=>'7º A','dia_semana'=>5,'numero_aula'=>1,'disciplina'=>'Português','professor_usuario_id'=>3,'professor_nome_snapshot'=>'Professor Um','professor_nome_importado'=>'Professor Um'];
+            $schedules->createImport(['ano_letivo'=>2026,'turno'=>'MATUTINO','vigente_de'=>'2026-01-01','vigente_ate'=>null,'nome_arquivo'=>'grade.xlsx','sha256'=>str_repeat('a',64),'usuario_id'=>1],[$row]);
+            $schedules->saveSnapshot(2,[['id'=>(int)$apc->query('SELECT id FROM apc_horarios')->fetchColumn(),'professor_usuario_id'=>3,'professor_nome_snapshot'=>'Professor Um','turma_id_externo'=>10,'turma_nome_snapshot'=>'7º A','turno'=>'MATUTINO','disciplina'=>'Português']]);
+            $apc->exec("INSERT INTO apc_envios(id,evento_id,bimestre_id,professor_usuario_id,professor_nome_snapshot,etapa,ano_serie,turma_id_externo,nome_original,nome_armazenado,mime_type,tamanho_bytes,sha256,caminho_relativo,atrasado,dias_atraso,enviado_em)VALUES(1,2,3,3,'Professor Um','EF_AF','EF7',10,'apc.pdf','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf','application/pdf',1200,'".str_repeat('b',64)."','envios/2026/08/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf',0,0,'2026-08-14 10:00:00');INSERT INTO apc_envio_turmas(envio_id,turma_id_externo,turma_nome_snapshot)VALUES(1,10,'7º A')");
+        }
+        if($status==='SEM_VINCULO')$main->exec('DELETE FROM vinculos_professor_turma WHERE professor_id=1');
+        $repository=new SubmissionRepository($apc);$access=new AccessRepository($main);$events=new EventRepository($apc);$audit=new AuditRepository($apc);
+        $scheduleService=new \Apc\Services\ScheduleService($schedules,$events,$access,$audit,new \Apc\Services\XlsxScheduleParser(),sys_get_temp_dir(),1048576);
+        $service=new SubmissionService($repository,$events,new TermRepository($apc),$access,$audit,sys_get_temp_dir(),1048576,null,null,'2026-08-20',null,null,$status==='SEM_VINCULO'?null:$scheduleService);
+        $controller=new SubmissionController($service,$repository,$access,new View(dirname(__DIR__).'/apps/apc/resources/views'));
+        $_SESSION['user']=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc';
+        return $controller->index(new Request('GET','/apc',[],[],[]))->body;
+    }
+
     public function testLocalFilePreviewKeepsInactiveRenderersHidden():void
     {
         $css=(string)file_get_contents(dirname(__DIR__).'/apps/preconselho-web/public/assets/app.css');

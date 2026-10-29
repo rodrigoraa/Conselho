@@ -29,13 +29,24 @@ final class CurriculumRepository
 
     public function abilities(array $filters=[],int $limit=100,int $offset=0): array
     {
+        [$where,$params]=$this->abilityCriteria($filters);
+        $sql='SELECT h.*,c.nome componente_nome,c.sigla componente_sigla,c.etapa componente_etapa,(SELECT GROUP_CONCAT(ha.ano_serie||\':\'||ha.tipo_associacao,\'|\') FROM apc_habilidade_anos_series ha WHERE ha.habilidade_id=h.id) associacoes,(SELECT COUNT(*) FROM apc_plano_habilidades ph WHERE ph.habilidade_id=h.id) uso_planos FROM apc_habilidades_curriculares h JOIN apc_componentes_curriculares c ON c.id=h.componente_id'.($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY c.etapa,c.ordem,COALESCE(h.codigo,\'\'),h.descricao,h.id LIMIT :limite OFFSET :offset';
+        $statement=$this->db->prepare($sql);foreach($params as$key=>$value)$statement->bindValue($key,$value,is_int($value)?PDO::PARAM_INT:PDO::PARAM_STR);$statement->bindValue(':limite',max(1,min(100,$limit)),PDO::PARAM_INT);$statement->bindValue(':offset',max(0,$offset),PDO::PARAM_INT);$statement->execute();return$statement->fetchAll();
+    }
+
+    public function countAbilities(array $filters=[]): int
+    {
+        [$where,$params]=$this->abilityCriteria($filters);$statement=$this->db->prepare('SELECT COUNT(*) FROM apc_habilidades_curriculares h JOIN apc_componentes_curriculares c ON c.id=h.componente_id'.($where?' WHERE '.implode(' AND ',$where):''));$statement->execute($params);return(int)$statement->fetchColumn();
+    }
+
+    private function abilityCriteria(array $filters): array
+    {
         $where=[];$params=[];
         foreach(['etapa'=>'c.etapa','componente'=>'h.componente_id','origem'=>'h.origem','escopo'=>'h.escopo']as$key=>$column)if(($filters[$key]??'')!==''){$where[]="$column=:$key";$params[":$key"]=$key==='componente'?(int)$filters[$key]:(string)$filters[$key];}
         if(($filters['ativo']??'')!==''){$where[]='h.ativo=:ativo';$params[':ativo']=(int)$filters['ativo'];}
         if(($filters['ano_serie']??'')!==''){$where[]='EXISTS(SELECT 1 FROM apc_habilidade_anos_series ha WHERE ha.habilidade_id=h.id AND ha.ano_serie=:ano)';$params[':ano']=$filters['ano_serie'];}
         if(($filters['q']??'')!==''){$where[]="(COALESCE(h.codigo,'') LIKE :q ESCAPE '\\' OR h.descricao LIKE :q ESCAPE '\\')";$params[':q']='%'.$this->escapeLike((string)$filters['q']).'%';}
-        $sql='SELECT h.*,c.nome componente_nome,c.sigla componente_sigla,c.etapa componente_etapa,(SELECT GROUP_CONCAT(ha.ano_serie||\':\'||ha.tipo_associacao,\'|\') FROM apc_habilidade_anos_series ha WHERE ha.habilidade_id=h.id) associacoes,(SELECT COUNT(*) FROM apc_plano_habilidades ph WHERE ph.habilidade_id=h.id) uso_planos FROM apc_habilidades_curriculares h JOIN apc_componentes_curriculares c ON c.id=h.componente_id'.($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY c.etapa,c.ordem,COALESCE(h.codigo,\'\'),h.descricao LIMIT :limite OFFSET :offset';
-        $statement=$this->db->prepare($sql);foreach($params as$key=>$value)$statement->bindValue($key,$value,is_int($value)?PDO::PARAM_INT:PDO::PARAM_STR);$statement->bindValue(':limite',$limit,PDO::PARAM_INT);$statement->bindValue(':offset',$offset,PDO::PARAM_INT);$statement->execute();return$statement->fetchAll();
+        return[$where,$params];
     }
 
     public function search(string $stage,string $year,int $componentId,string $query,int $limit=30): array

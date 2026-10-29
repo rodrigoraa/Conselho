@@ -33,17 +33,28 @@ final class PlanService
     {
         $before=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($before);$structured=$this->curriculumFields($input,$id);$data=$this->fields($input,$structured);
         $this->plans->db->beginTransaction();
-        try{$this->plans->update($id,$data);if($structured){$old=$this->curriculum?->planCurriculum($id);$this->curriculum?->syncPlan($id,$structured['componentes'],$structured['habilidades']);$this->audit->record((int)$user['id'],'CURRICULO_PLANO_ATUALIZADO','apc_planos',$id,$old,$this->curriculumAudit($structured),$ip,$userAgent);}$this->audit->record((int)$user['id'],'ALTERAR','apc_planos',$id,$this->auditFields($before),$data,$ip,$userAgent);$this->plans->db->commit();}
+        try{$this->persistUpdate($id,$before,$data,$structured,$user,$ip,$userAgent);$this->plans->db->commit();}
         catch(\Throwable $exception){if($this->plans->db->inTransaction())$this->plans->db->rollBack();throw$exception;}
     }
 
-    public function finalize(int $id,array $user,string $ip,string $userAgent): void
+    public function finalize(int $id,array $user,string $ip,string $userAgent,?array $input=null): void
     {
-        $plan=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);
-        foreach(['conteudos','descricao_atividade','estrategia_devolucao']as$field)if(trim((string)$plan[$field])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');$selected=$this->curriculum?->planCurriculum($id);if($selected&&$selected['componentes']) {if(!$selected['habilidades']&&trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Selecione ao menos uma habilidade ou preencha o complemento curricular.');}elseif(trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');
         $this->plans->db->beginTransaction();
-        try{$this->plans->finalize($id);$this->audit->record((int)$user['id'],'FINALIZAR','apc_planos',$id,['status'=>'RASCUNHO'],['status'=>'FINALIZADO'],$ip,$userAgent);$this->plans->db->commit();}
+        try{
+            $plan=$this->authorization->editablePlan($id,(int)$user['id'],(string)$user['perfil']);$this->window()->assertOpen($plan);
+            // The submitted draft and its curriculum snapshots belong to the same finalization.
+            if($input!==null){$structured=$this->curriculumFields($input,$id);$data=$this->fields($input,$structured);$this->persistUpdate($id,$plan,$data,$structured,$user,$ip,$userAgent);$plan=array_replace($plan,$data);}
+            foreach(['conteudos','descricao_atividade','estrategia_devolucao']as$field)if(trim((string)$plan[$field])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');$selected=$this->curriculum?->planCurriculum($id);if($selected&&$selected['componentes']) {if(!$selected['habilidades']&&trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Selecione ao menos uma habilidade ou preencha o complemento curricular.');}elseif(trim((string)$plan['competencias_habilidades'])==='')throw new HttpException(422,'APC_PLAN_INCOMPLETE','Preencha todos os campos obrigatórios antes de finalizar.');
+            $this->plans->finalize($id);$this->audit->record((int)$user['id'],'FINALIZAR','apc_planos',$id,['status'=>'RASCUNHO'],['status'=>'FINALIZADO'],$ip,$userAgent);$this->plans->db->commit();
+        }
         catch(\Throwable $exception){if($this->plans->db->inTransaction())$this->plans->db->rollBack();throw$exception;}
+    }
+
+    private function persistUpdate(int $id,array $before,array $data,?array $structured,array $user,string $ip,string $userAgent): void
+    {
+        $this->plans->update($id,$data);
+        if($structured){$old=$this->curriculum?->planCurriculum($id);$this->curriculum?->syncPlan($id,$structured['componentes'],$structured['habilidades']);$this->audit->record((int)$user['id'],'CURRICULO_PLANO_ATUALIZADO','apc_planos',$id,$old,$this->curriculumAudit($structured),$ip,$userAgent);}
+        $this->audit->record((int)$user['id'],'ALTERAR','apc_planos',$id,$this->auditFields($before),$data,$ip,$userAgent);
     }
 
     public function reopen(int $id,string $reason,array $user,string $ip,string $userAgent): void

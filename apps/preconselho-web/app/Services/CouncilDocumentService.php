@@ -37,7 +37,13 @@ final class CouncilDocumentService
         if($role==='PROFESSOR'){
             $statement=$this->repository->db->prepare("SELECT p.id periodo_id,p.nome periodo,p.ano_letivo,p.turno,p.data_fim,p.status periodo_status,(SELECT COUNT(*) FROM documento_turmas dt WHERE dt.periodo_id=p.id) total_turmas,(SELECT COUNT(*) FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario) minhas_turmas,(SELECT COUNT(*) FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario AND c.finalizado=1) finalizadas FROM periodos_pre_conselho p WHERE EXISTS(SELECT 1 FROM documento_turma_professores c JOIN documento_turmas dt ON dt.id=c.documento_turma_id WHERE dt.periodo_id=p.id AND c.professor_usuario_id=:usuario) ORDER BY CASE p.status WHEN 'ABERTO' THEN 0 ELSE 1 END,p.data_fim DESC,p.id DESC");
             $statement->execute([':usuario'=>$actorId]);
-            return$statement->fetchAll();
+            $summaries=$statement->fetchAll();
+            $pending=$this->repository->db->prepare("SELECT dt.id,dt.periodo_id,dt.turma_nome_snapshot FROM documento_turmas dt JOIN documento_turma_professores c ON c.documento_turma_id=dt.id JOIN periodos_pre_conselho p ON p.id=dt.periodo_id WHERE c.professor_usuario_id=:usuario AND c.finalizado=0 AND p.status='ABERTO'");
+            $pending->execute([':usuario'=>$actorId]);$pendingClasses=$pending->fetchAll();
+            usort($pendingClasses,static function(array$a,array$b):int{$first=CouncilClass::identify((string)$a['turma_nome_snapshot']);$second=CouncilClass::identify((string)$b['turma_nome_snapshot']);return[$first['order'],mb_strtolower((string)$a['turma_nome_snapshot']),(int)$a['id']]<=>[$second['order'],mb_strtolower((string)$b['turma_nome_snapshot']),(int)$b['id']];});
+            $firstPending=[];foreach($pendingClasses as$class)$firstPending[(int)$class['periodo_id']]??=(int)$class['id'];
+            foreach($summaries as&$summary)$summary['first_pending_class']=$firstPending[(int)$summary['periodo_id']]??null;unset($summary);
+            return$summaries;
         }
         return$this->repository->db->query("SELECT p.id periodo_id,p.nome periodo,p.ano_letivo,p.turno,p.data_fim,p.status periodo_status,COUNT(DISTINCT dt.id) total_turmas,COUNT(DISTINCT c.professor_usuario_id) professores,COUNT(c.id) contribuicoes,COALESCE(SUM(c.finalizado),0) finalizadas FROM periodos_pre_conselho p JOIN documento_turmas dt ON dt.periodo_id=p.id LEFT JOIN documento_turma_professores c ON c.documento_turma_id=dt.id GROUP BY p.id ORDER BY CASE p.status WHEN 'ABERTO' THEN 0 ELSE 1 END,p.data_fim DESC,p.id DESC")->fetchAll();
     }

@@ -19,6 +19,16 @@ final class ApcStructuredPlanTest extends ApcTestCase
     {
         [$db,,$service]=$this->services();[$components,$abilities]=$this->ids($db);$this->expectException(HttpException::class);$service->create($this->input([$components['MAT']],[$abilities['HIS']]),['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');
     }
+    public function testSubmittedCurriculumIsValidatedAndCommittedWithFinalization():void
+    {
+        [$db,$curriculum,$service,$plans]=$this->services();[$components,$abilities]=$this->ids($db);$teacher=['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'];
+        $id=$service->create($this->input([$components['TVT']],[$abilities['TVT']]),$teacher,'127.0.0.1','phpunit');$before=$plans->find($id);$snapshots=$curriculum->planCurriculum($id);$auditCount=(int)$db->query('SELECT COUNT(*) FROM apc_auditoria')->fetchColumn();
+        $submitted=$this->input([$components['MAT']],[]);$submitted['competencias_habilidades']='';
+        try{$service->finalize($id,$teacher,'127.0.0.1','phpunit',$submitted);self::fail('Sem habilidade nem complemento, a versão enviada deve ser recusada.');}catch(HttpException $exception){self::assertSame('APC_PLAN_INCOMPLETE',$exception->errorCode);}
+        self::assertSame($before,$plans->find($id));self::assertSame($snapshots,$curriculum->planCurriculum($id));self::assertSame($auditCount,(int)$db->query('SELECT COUNT(*) FROM apc_auditoria')->fetchColumn());
+        $submitted['habilidades']=[$abilities['MAT']];$service->finalize($id,$teacher,'127.0.0.1','phpunit',$submitted);
+        self::assertSame('FINALIZADO',$plans->find($id)['status']);self::assertSame([$components['MAT']],array_map('intval',array_column($curriculum->planCurriculum($id)['componentes'],'componente_id')));self::assertSame([$abilities['MAT']],array_map('intval',array_column($curriculum->planCurriculum($id)['habilidades'],'habilidade_id')));
+    }
     public function testInactiveItemsRemainInHistoricalPlanButCannotEnterNewPlan():void
     {
         [$db,$curriculum,$service]=$this->services();[$components,$abilities]=$this->ids($db);$input=$this->input([$components['TVT']],[$abilities['TVT']]);$id=$service->create($input,['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');$curriculum->setAbilityActive($abilities['TVT'],false);$service->update($id,$input,['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');self::assertCount(1,$curriculum->planCurriculum($id)['habilidades']);$db->exec("UPDATE apc_planos SET componente_curricular='outro' WHERE id=$id");$this->expectException(HttpException::class);$service->create($input+['turma_id_externo'=>10],['id'=>3,'nome'=>'Professor Um','perfil'=>'PROFESSOR'],'127.0.0.1','phpunit');

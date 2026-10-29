@@ -3,8 +3,8 @@
 namespace Tests;
 
 use Apc\Controllers\CalendarController;
-use Apc\Repositories\{EventRepository,SubmissionRepository,TermRepository};
-use Apc\Services\SubmissionWindow;
+use Apc\Repositories\{AccessRepository,AuditRepository,EventRepository,SubmissionRepository,TermRepository};
+use Apc\Services\{SubmissionService,SubmissionWindow};
 use Shared\Exceptions\HttpException;
 use Shared\Http\Request;
 use Shared\Support\View;
@@ -22,13 +22,18 @@ final class ApcCalendarTest extends ApcTestCase
     }
     public function testCalendarControllerRendersMonthlyNavigationAndRejectsInvalidMonth():void
     {
-        $db=$this->apcDatabase();$this->seedEvent($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/calendario';$controller=$this->controller($db);$response=$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'8'],[],[]));self::assertStringContainsString('Agosto de 2026',$response->body);self::assertStringContainsString('APC de agosto',$response->body);self::assertStringContainsString('Disponível para envio',$response->body);self::assertStringContainsString('Mês anterior',$response->body);$this->expectException(HttpException::class);$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'13'],[],[]));
+        $db=$this->apcDatabase();$this->seedEvent($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/calendario';$controller=$this->controller($db);$response=$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'8'],[],[]));self::assertStringContainsString('Agosto de 2026',$response->body);self::assertStringContainsString('APC de agosto',$response->body);self::assertStringContainsString('Evento ativo',$response->body);self::assertStringContainsString('Mês anterior',$response->body);$this->expectException(HttpException::class);$controller->index(new Request('GET','/apc/calendario',['ano'=>'2026','mes'=>'13'],[],[]));
     }
 
     public function testEventPageExplainsAutomaticAvailabilityAndLateStatus():void
     {
-        $db=$this->apcDatabase();$this->seedEvent($db);$controller=$this->controller($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/eventos/1';$teacher=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('outro semestre',$teacher->body);self::assertStringContainsString('automaticamente enquanto o evento estiver ativo',$teacher->body);self::assertStringContainsString('entregues com atraso',$teacher->body);self::assertStringContainsString('Anexar arquivo',$teacher->body);self::assertStringNotContainsString('Suspender envio',$teacher->body);$_SESSION['user']=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];$coordination=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('Disponível para envio',$coordination->body);self::assertStringNotContainsString('Suspender envio',$coordination->body);self::assertStringNotContainsString('Disponibilizar para envio',$coordination->body);
+        $db=$this->apcDatabase();$this->seedEvent($db);$controller=$this->controller($db);$_SESSION['user']=['id'=>3,'nome'=>'Professor','perfil'=>'PROFESSOR'];$_SERVER['REQUEST_URI']='/apc/eventos/1';$teacher=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('outro semestre',$teacher->body);self::assertStringContainsString('automaticamente enquanto o evento estiver ativo',$teacher->body);self::assertStringContainsString('entregues com atraso',$teacher->body);self::assertStringContainsString('Anexar arquivo',$teacher->body);self::assertStringNotContainsString('Suspender envio',$teacher->body);$_SESSION['user']=['id'=>2,'nome'=>'Coordenação','perfil'=>'COORDENADOR'];$coordination=$controller->show(new Request('GET','/apc/eventos/1',[],[],[]),['id'=>'1']);self::assertStringContainsString('Evento ativo',$coordination->body);self::assertStringNotContainsString('Suspender envio',$coordination->body);self::assertStringNotContainsString('Disponibilizar para envio',$coordination->body);
     }
 
-    private function controller(\PDO$db):CalendarController{return new CalendarController(new EventRepository($db),new SubmissionRepository($db),new View(dirname(__DIR__).'/apps/apc/resources/views'),new SubmissionWindow(new TermRepository($db),'2026-08-11'));}
+    private function controller(\PDO$db):CalendarController
+    {
+        $main=$this->mainDatabase();$this->seedMain($main);$access=new AccessRepository($main);$repository=new SubmissionRepository($db);$events=new EventRepository($db);$terms=new TermRepository($db);
+        $service=new SubmissionService($repository,$events,$terms,$access,new AuditRepository($db),sys_get_temp_dir(),1048576,null,null,'2026-08-11');
+        return new CalendarController($events,$repository,new View(dirname(__DIR__).'/apps/apc/resources/views'),new SubmissionWindow($terms,'2026-08-11'),null,$service,$access);
+    }
 }
